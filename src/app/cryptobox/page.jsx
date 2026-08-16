@@ -24,24 +24,7 @@ export default function CryptoBoxPage() {
   const [isSubmitting, setIsSubmitting] = useState(false);
 
   // History & User Claims State
-  const [claimHistory, setClaimHistory] = useState([
-    {
-      id: 1,
-      code: 'RED888',
-      title: '恭喜发财，万事如意！',
-      createdBy: '元元财经pro',
-      amount: 0.0901926,
-      claimedAt: '2026-08-15 00:28:56'
-    },
-    {
-      id: 2,
-      code: 'WELCOME2026',
-      title: '红包有奖问答',
-      createdBy: '三马哥',
-      amount: 0.5000,
-      claimedAt: '2026-08-10 21:15:27'
-    }
-  ]);
+  const [claimHistory, setClaimHistory] = useState([]);
 
   // Modal / Toast States
   const [popupModal, setPopupModal] = useState({ show: false, message: '', type: 'error' });
@@ -166,25 +149,11 @@ export default function CryptoBoxPage() {
 
       <div className="px-4 flex flex-col gap-5 pt-1">
         
-        {/* ---------------- 2. SEND / RECEIVE PILLS ---------------- */}
+        {/* ---------------- 2. RECEIVE PILL ---------------- */}
         <div className="flex items-center gap-2">
           <button
-            onClick={() => setActiveTab('send')}
-            className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'send' 
-                ? 'bg-[#252830] text-white shadow-md' 
-                : 'text-gray-400 hover:text-white'
-            }`}
-          >
-            Send
-          </button>
-          <button
             onClick={() => setActiveTab('receive')}
-            className={`px-4 py-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer ${
-              activeTab === 'receive' 
-                ? 'bg-[#252830] text-white shadow-md' 
-                : 'text-gray-400 hover:text-white'
-            }`}
+            className="px-4 py-1.5 rounded-xl text-xs font-bold bg-[#252830] text-white shadow-md cursor-pointer"
           >
             Receive
           </button>

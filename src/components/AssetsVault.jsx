@@ -205,6 +205,37 @@ export default function AssetsVault() {
   const [showWithdrawChainModal, setShowWithdrawChainModal] = useState(false);
 
   // Real-time Transaction History State
+  const [dbHistoryList, setDbHistoryList] = useState([]);
+  const [latestHistoryText, setLatestHistoryText] = useState('you have recive 0.5$');
+  const [latestHistoryStatus, setLatestHistoryStatus] = useState('Completed');
+
+  useEffect(() => {
+    const fetchUserHistory = () => {
+      const savedUid = localStorage.getItem('userUid');
+      const savedEmail = localStorage.getItem('userEmail');
+
+      if (savedUid || savedEmail) {
+        fetch(`/api/user/history?uid=${encodeURIComponent(savedUid || '')}&email=${encodeURIComponent(savedEmail || '')}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success && data.history && data.history.length > 0) {
+              setDbHistoryList(data.history);
+              const top = data.history[0];
+              const titleText = top.title || top.type || 'Transaction';
+              const amtText = top.amount ? ` (${top.amount})` : '';
+              setLatestHistoryText(`${titleText}${amtText}`);
+              setLatestHistoryStatus(top.status || 'Completed');
+            }
+          })
+          .catch(err => console.warn('History fetch error:', err));
+      }
+    };
+
+    fetchUserHistory();
+    const interval = setInterval(fetchUserHistory, 5000);
+    return () => clearInterval(interval);
+  }, []);
+
   const [historyFilter, setHistoryFilter] = useState('All');
   const [transactions, setTransactions] = useState([
     {
@@ -282,6 +313,97 @@ export default function AssetsVault() {
   ]);
 
   const [userTotalUsdt, setUserTotalUsdt] = useState(0.00);
+  const [userSpotUsdt, setUserSpotUsdt] = useState(0.00);
+  const [userFuturesUsdt, setUserFuturesUsdt] = useState(0.00);
+
+  // Transfer Modal State
+  const [transferFrom, setTransferFrom] = useState('Spot');
+  const [transferTo, setTransferTo] = useState('Futures');
+  const [transferAmount, setTransferAmount] = useState('');
+  const [transferSubmitting, setTransferSubmitting] = useState(false);
+  const [selectedTransferCoin, setSelectedTransferCoin] = useState('USDT');
+  const [transferCoinSearchQuery, setTransferCoinSearchQuery] = useState('');
+
+  const ALL_TRANSFER_COINS = [
+    { symbol: 'USDT', name: 'TetherUS', fullName: 'Tether USD' },
+    { symbol: 'BTC', name: 'Bitcoin', fullName: 'Bitcoin' },
+    { symbol: 'BNB', name: 'BNB', fullName: 'BNB Token' },
+    { symbol: 'TON', name: 'Toncoin', fullName: 'Toncoin' },
+    { symbol: 'TRX', name: 'TRON', fullName: 'TRON' },
+    { symbol: 'ETH', name: 'Ethereum', fullName: 'Ethereum' },
+    { symbol: 'SOL', name: 'Solana', fullName: 'Solana' }
+  ];
+
+  const getCoinAvailableBalance = (coinSymbol) => {
+    if (coinSymbol === 'USDT') {
+      return transferFrom === 'Spot' ? userSpotUsdt : userFuturesUsdt;
+    }
+    const found = balancesList.find(b => b.symbol === coinSymbol);
+    if (!found) return 0;
+    const amt = parseFloat(found.amount);
+    return isNaN(amt) ? 0 : amt;
+  };
+
+  const handleTransferSubmit = async () => {
+    const numAmt = parseFloat(transferAmount);
+    if (isNaN(numAmt) || numAmt <= 0) {
+      alert('Please enter a valid transfer amount');
+      return;
+    }
+
+    const sourceBal = getCoinAvailableBalance(selectedTransferCoin);
+    if (numAmt > sourceBal) {
+      alert(`Insufficient ${transferFrom} ${selectedTransferCoin} balance! Available: ${sourceBal} ${selectedTransferCoin}`);
+      return;
+    }
+
+    const savedUid = localStorage.getItem('userUid');
+    const savedEmail = localStorage.getItem('userEmail');
+
+    setTransferSubmitting(true);
+    try {
+      const res = await fetch('/api/user/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          userUid: savedUid,
+          userEmail: savedEmail,
+          fromAccount: transferFrom,
+          toAccount: transferTo,
+          amount: numAmt,
+          coin: selectedTransferCoin
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        if (data.spotUsdt !== undefined) {
+          const newSpot = parseFloat(data.spotUsdt);
+          setUserSpotUsdt(newSpot);
+          if (newSpot <= 0) {
+            localStorage.removeItem('user_converted_assets');
+          }
+        }
+        if (data.futuresUsdt !== undefined) {
+          setUserFuturesUsdt(parseFloat(data.futuresUsdt));
+        }
+
+        alert(`✅ Transfer Successful!\n${numAmt} ${selectedTransferCoin} transferred from ${transferFrom} Account to ${transferTo} Account`);
+        setActiveModal(null);
+        setTransferAmount('');
+
+        if (typeof window !== 'undefined') {
+          window.dispatchEvent(new Event('balanceUpdated'));
+        }
+      } else {
+        alert(`❌ Transfer Error: ${data.error || 'Failed to complete transfer'}`);
+      }
+    } catch (err) {
+      console.error('Transfer Error:', err);
+      alert('❌ Server error processing transfer');
+    } finally {
+      setTransferSubmitting(false);
+    }
+  };
 
   useEffect(() => {
     const fetchBalance = () => {
@@ -306,6 +428,18 @@ export default function AssetsVault() {
             if (data.success && data.balance) {
               const b = data.balance;
               const usdtAmount = b.availableUsdt !== undefined ? parseFloat(b.availableUsdt) : parseFloat(b.totalUsdt || 0);
+
+              const rawSpotUsdt = b.spotUsdt !== undefined ? parseFloat(b.spotUsdt) : usdtAmount;
+              const futuresUsdtVal = b.futuresUsdt !== undefined ? Math.max(0, parseFloat(b.futuresUsdt)) : 0.00;
+              const maxPossibleSpot = Math.max(0, usdtAmount - futuresUsdtVal);
+              const spotUsdtVal = Math.min(rawSpotUsdt, maxPossibleSpot);
+
+              setUserSpotUsdt(spotUsdtVal);
+              setUserFuturesUsdt(futuresUsdtVal);
+
+              const totalUsdtCombined = spotUsdtVal + futuresUsdtVal;
+              const totalUsdtVal = totalUsdtCombined * COIN_RATES.USDT;
+
               const btcAmount = b.btc !== undefined ? parseFloat(b.btc) : parseFloat(savedConverted.BTC || 0);
               const bnbAmount = b.bnb !== undefined ? parseFloat(b.bnb) : parseFloat(savedConverted.BNB || 0);
               const tonAmount = b.ton !== undefined ? parseFloat(b.ton) : parseFloat(savedConverted.TON || 0);
@@ -313,7 +447,7 @@ export default function AssetsVault() {
               const ethAmount = b.eth !== undefined ? parseFloat(b.eth) : parseFloat(savedConverted.ETH || 0);
               const solAmount = b.sol !== undefined ? parseFloat(b.sol) : parseFloat(savedConverted.SOL || 0);
 
-              const usdtVal = usdtAmount * COIN_RATES.USDT;
+              const spotUsdtValUsd = spotUsdtVal * COIN_RATES.USDT;
               const btcVal = btcAmount * COIN_RATES.BTC;
               const bnbVal = bnbAmount * COIN_RATES.BNB;
               const tonVal = tonAmount * COIN_RATES.TON;
@@ -321,16 +455,16 @@ export default function AssetsVault() {
               const ethVal = ethAmount * COIN_RATES.ETH;
               const solVal = solAmount * COIN_RATES.SOL;
 
-              const totalPortfolioUsd = usdtVal + btcVal + bnbVal + tonVal + trxVal + ethVal + solVal;
+              const totalPortfolioUsd = spotUsdtValUsd + btcVal + bnbVal + tonVal + trxVal + ethVal + solVal + futuresUsdtVal;
               setUserTotalUsdt(totalPortfolioUsd);
 
               setBalancesList([
                 {
                   symbol: "USDT",
                   name: "TetherUS",
-                  amount: usdtAmount.toFixed(2),
-                  usdValStr: `${usdtVal.toFixed(2)} USD`,
-                  usdValNum: usdtVal,
+                  amount: totalUsdtCombined.toFixed(2),
+                  usdValStr: `${totalUsdtVal.toFixed(2)} USD`,
+                  usdValNum: totalUsdtVal,
                   color: "#26a17b"
                 },
                 {
@@ -415,8 +549,15 @@ export default function AssetsVault() {
   const filteredBalances = balancesList.filter((item) => {
     const matchesSearch = item.symbol.toLowerCase().includes(searchQuery.toLowerCase()) ||
                           item.name.toLowerCase().includes(searchQuery.toLowerCase());
+    
+    const itemUsdVal = (topTab === 'Spot' && item.symbol === 'USDT')
+      ? userSpotUsdt
+      : (topTab === 'Overview' && item.symbol === 'USDT')
+        ? (userSpotUsdt + userFuturesUsdt)
+        : item.usdValNum;
+
     if (hideSmallBalances) {
-      return matchesSearch && item.usdValNum >= 0.05;
+      return matchesSearch && itemUsdVal >= 0.05;
     }
     return matchesSearch;
   });
@@ -560,7 +701,7 @@ export default function AssetsVault() {
           <div className="sticky top-0 z-30 bg-[#000000] px-4 py-3 flex items-center justify-between border-b border-[#141822]">
             
             {/* Navigation Tabs: Overview, Spot, Futures */}
-            <div className="flex items-center gap-5 text-sm font-semibold overflow-x-auto no-scrollbar">
+            <div className="flex items-center gap-6 text-sm font-semibold overflow-x-auto no-scrollbar">
               {['Overview', 'Spot', 'Futures'].map((tab) => {
                 const isActive = topTab === tab;
                 return (
@@ -569,8 +710,10 @@ export default function AssetsVault() {
                     onClick={() => {
                       setTopTab(tab);
                     }}
-                    className={`relative transition-colors whitespace-nowrap ${
-                      isActive ? 'text-white font-extrabold text-base' : 'text-[#8e8e93] hover:text-gray-200'
+                    className={`relative py-1 transition-all whitespace-nowrap cursor-pointer ${
+                      isActive 
+                        ? 'text-white font-extrabold text-base border-b-2 border-[#38bdf8] pb-0.5' 
+                        : 'text-[#8e8e93] hover:text-gray-200'
                     }`}
                   >
                     {tab}
@@ -596,7 +739,9 @@ export default function AssetsVault() {
         {/* Total Value header row with Eye icon */}
         <div className="flex items-center justify-between">
           <div className="flex items-center gap-1.5 text-xs text-[#8e8e93]">
-            <span>Total Value</span>
+            <span>
+              {topTab === 'Overview' ? 'Total Value' : topTab === 'Spot' ? 'Spot Total Value' : 'Futures Account Value'}
+            </span>
             <button 
               onClick={() => setHideBalance(!hideBalance)}
               className="text-[#8e8e93] hover:text-white transition-colors"
@@ -604,6 +749,17 @@ export default function AssetsVault() {
               {hideBalance ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
             </button>
           </div>
+
+          {topTab === 'Spot' && (
+            <span className="text-[10px] bg-[#38bdf8]/10 text-[#38bdf8] font-bold px-2.5 py-0.5 rounded-full border border-[#38bdf8]/20">
+              Spot Account
+            </span>
+          )}
+          {topTab === 'Futures' && (
+            <span className="text-[10px] bg-[#22c55e]/10 text-[#22c55e] font-bold px-2.5 py-0.5 rounded-full border border-[#22c55e]/20">
+              Futures 100x
+            </span>
+          )}
         </div>
 
         {/* Big Balance Amount & Blue Wave Sparkline Chart Row */}
@@ -611,10 +767,17 @@ export default function AssetsVault() {
           {/* Main Amount */}
           <div className="flex items-baseline gap-2">
             <span className="text-3xl sm:text-4xl font-extrabold text-white tracking-tight font-sans">
-              {hideBalance ? "••••" : (userTotalUsdt > 0 ? userTotalUsdt.toFixed(2) : selectedCurrency.displayVal)}
+              {hideBalance 
+                ? "••••" 
+                : topTab === 'Overview' 
+                  ? (userTotalUsdt > 0 ? userTotalUsdt.toFixed(2) : selectedCurrency.displayVal)
+                  : topTab === 'Spot'
+                    ? userSpotUsdt.toFixed(2)
+                    : userFuturesUsdt.toFixed(2)
+              }
             </span>
             
-            {/* Clickable Currency Selector Text (No box/border, plain text + small down arrow) */}
+            {/* Clickable Currency Selector Text */}
             <button 
               onClick={() => setActiveModal(activeModal === 'currency' ? null : 'currency')}
               className="flex items-center gap-1 text-sm sm:text-base font-extrabold text-white hover:text-gray-200 cursor-pointer transition-colors"
@@ -627,13 +790,13 @@ export default function AssetsVault() {
             </button>
           </div>
 
-          {/* Blue Wave Sparkline Chart */}
+          {/* Blue/Green Wave Sparkline Chart */}
           <div className="w-24 h-9">
             <svg className="w-full h-full text-[#38bdf8]" viewBox="0 0 100 35" preserveAspectRatio="none">
               <path
                 d="M 0,20 Q 20,5 35,15 T 65,22 T 85,8 T 100,12"
                 fill="none"
-                stroke="#38bdf8"
+                stroke={topTab === 'Futures' ? '#22c55e' : '#38bdf8'}
                 strokeWidth="2.5"
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -642,13 +805,22 @@ export default function AssetsVault() {
           </div>
         </div>
 
-        {/* Sub-balance (Clickable currency switcher) */}
+        {/* Sub-balance */}
         <button 
           onClick={() => setActiveModal('currency')}
           className="flex items-center gap-1 text-xs text-[#8e8e93] font-medium hover:text-white transition-colors cursor-pointer w-fit"
           title="Click to select currency"
         >
-          <span>{hideBalance ? "≈ •••• BTC" : selectedCurrency.subVal}</span>
+          <span>
+            {hideBalance 
+              ? "≈ •••• BTC" 
+              : topTab === 'Overview'
+                ? selectedCurrency.subVal
+                : topTab === 'Spot'
+                  ? `≈ ${userSpotUsdt.toFixed(2)} USD`
+                  : `Unrealized PnL: 0.00 USDT`
+            }
+          </span>
           <ChevronDown className="w-3 h-3 text-[#8e8e93]" />
         </button>
 
@@ -656,189 +828,419 @@ export default function AssetsVault() {
 
       {/* ---------------- 3. ACTION CAPSULE BUTTONS ROW (Image 2) ---------------- */}
       <div className="px-4 my-3 grid grid-cols-4 gap-2.5">
-        
-        {/* Deposit Button */}
-        <button
-          onClick={() => setActiveModal('deposit')}
-          className="bg-white hover:bg-gray-100 text-black font-extrabold text-xs py-2.5 rounded-full transition-transform active:scale-95 shadow-sm text-center"
-        >
-          Deposit
-        </button>
-
-        {/* Withdraw Button */}
-        <button
-          onClick={() => setActiveModal('withdrawSelectCoin')}
-          className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center"
-        >
-          Withdraw
-        </button>
-
-        {/* Transfer Button */}
-        <button
-          onClick={() => setActiveModal('transfer')}
-          className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center"
-        >
-          Transfer
-        </button>
-
-        {/* Convert Button */}
-        <button
-          onClick={() => router.push('/convert')}
-          className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center"
-        >
-          Convert
-        </button>
-
-      </div>
-
-      {/* ---------------- 4. CRYPTO / ACCOUNT TABS & FILTER (Image 2) ---------------- */}
-      <div className="px-4 mt-4 flex flex-col gap-2">
-        
-        {/* Filter & Search & History Header Line */}
-        <div className="flex items-center justify-between border-b border-[#141822] pb-2">
-          {/* History Option (Real-Time Transaction History) */}
-          <button 
-            onClick={() => setActiveModal('history')}
-            className="flex items-center gap-1.5 text-xs font-semibold text-[#8e8e93] hover:text-white transition-colors cursor-pointer group py-1"
-            title="Real-time Transaction History"
-          >
-            <History className="w-4 h-4 text-[#8e8e93] group-hover:text-[#38bdf8] transition-colors" />
-            <span className="group-hover:text-white">History</span>
-          </button>
-
-          {/* Search Icon */}
-          <button 
-            onClick={() => setShowSearch(!showSearch)}
-            className="text-[#8e8e93] hover:text-white p-1 transition-colors"
-            title="Search assets"
-          >
-            <Search className="w-4 h-4" />
-          </button>
-        </div>
-
-        {/* Expandable Search Input Bar */}
-        {showSearch && (
-          <div className="mt-1">
-            <input
-              type="text"
-              placeholder="Search coin..."
-              value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
-              className="w-full bg-[#121620] border border-[#1e2533] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#38bdf8] transition-colors"
-            />
-          </div>
-        )}
-
-        {/* Checkbox Line: [ ] Hide small balances */}
-        <div className="flex items-center gap-2 pt-1 pb-2">
-          <input
-            type="checkbox"
-            id="hideSmall"
-            checked={hideSmallBalances}
-            onChange={(e) => setHideSmallBalances(e.target.checked)}
-            className="w-3.5 h-3.5 accent-[#38bdf8] bg-[#121620] border-[#2b3548] rounded cursor-pointer"
-          />
-          <label htmlFor="hideSmall" className="text-xs text-[#8e8e93] cursor-pointer select-none hover:text-gray-300">
-            Hide small balances
-          </label>
-        </div>
-
-      </div>
-
-      {/* ---------------- 5. ASSET ITEMS BALANCES LIST (Image 2) ---------------- */}
-      <div className="px-4 pb-24 flex flex-col gap-1">
-        {filteredBalances.length === 0 ? (
-          <div className="text-center py-8 text-xs text-[#8e8e93]">No assets found</div>
-        ) : (
-          filteredBalances.map((item) => (
-            <div
-              key={item.symbol}
-              className="flex items-center justify-between py-3 hover:bg-[#121620]/60 px-1 rounded-xl transition-colors group cursor-pointer"
+        {topTab === 'Futures' ? (
+          <>
+            <button
               onClick={() => {
-                setSelectedAsset(item);
-                setActiveModal('assetDetail');
+                setTransferFrom('Spot');
+                setTransferTo('Futures');
+                setActiveModal('transfer');
               }}
+              className="bg-[#38bdf8] hover:bg-[#0284c7] text-black font-extrabold text-xs py-2.5 rounded-full transition-transform active:scale-95 shadow-sm text-center cursor-pointer"
             >
-              {/* Left: Coin Icon + Symbol */}
-              <div className="flex items-center gap-3">
-                <CoinLogo symbol={item.symbol} size="w-9 h-9" />
+              Transfer
+            </button>
 
-                <span className="font-semibold text-sm text-gray-100 tracking-wide">
-                  {item.symbol}
+            <button
+              onClick={() => setActiveModal('deposit')}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Deposit
+            </button>
+
+            <button
+              onClick={() => router.push('/futures')}
+              className="bg-[#22c55e] hover:bg-[#16a34a] text-black font-extrabold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer flex items-center justify-center gap-1"
+            >
+              <span>Trade</span>
+              <span className="text-[10px]">↗</span>
+            </button>
+
+            <button
+              onClick={() => router.push('/convert')}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Convert
+            </button>
+          </>
+        ) : topTab === 'Spot' ? (
+          <>
+            <button
+              onClick={() => setActiveModal('deposit')}
+              className="bg-white hover:bg-gray-100 text-black font-extrabold text-xs py-2.5 rounded-full transition-transform active:scale-95 shadow-sm text-center cursor-pointer"
+            >
+              Deposit
+            </button>
+
+            <button
+              onClick={() => setActiveModal('withdrawSelectCoin')}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Withdraw
+            </button>
+
+            <button
+              onClick={() => {
+                setTransferFrom('Spot');
+                setTransferTo('Futures');
+                setActiveModal('transfer');
+              }}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Transfer
+            </button>
+
+            <button
+              onClick={() => router.push('/trade')}
+              className="bg-[#38bdf8] hover:bg-[#0284c7] text-black font-extrabold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Trade
+            </button>
+          </>
+        ) : (
+          <>
+            <button
+              onClick={() => setActiveModal('deposit')}
+              className="bg-white hover:bg-gray-100 text-black font-extrabold text-xs py-2.5 rounded-full transition-transform active:scale-95 shadow-sm text-center cursor-pointer"
+            >
+              Deposit
+            </button>
+
+            <button
+              onClick={() => setActiveModal('withdrawSelectCoin')}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Withdraw
+            </button>
+
+            <button
+              onClick={() => {
+                setTransferFrom('Spot');
+                setTransferTo('Futures');
+                setActiveModal('transfer');
+              }}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Transfer
+            </button>
+
+            <button
+              onClick={() => router.push('/convert')}
+              className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs py-2.5 rounded-full transition-transform active:scale-95 text-center cursor-pointer"
+            >
+              Convert
+            </button>
+          </>
+        )}
+      </div>
+
+      {/* ---------------- 4. SECTION SPECIFIC CONTENT ---------------- */}
+      {topTab === 'Futures' ? (
+        /* FUTURES SECTION VIEW */
+        <div className="px-4 pb-24 flex flex-col gap-4 mt-2">
+          {/* Futures Account Breakdown Card */}
+          <div className="bg-[#121620] border border-[#232b38] rounded-2xl p-4 flex flex-col gap-3.5 shadow-lg">
+            <div className="flex items-center justify-between border-b border-[#1e2533] pb-2.5">
+              <span className="text-xs font-bold text-[#22c55e] flex items-center gap-1.5">
+                <span className="w-2 h-2 rounded-full bg-[#22c55e] animate-pulse"></span>
+                USDT-M Futures Account
+              </span>
+              <span className="text-[11px] text-[#8e8e93]">Max 100x Leverage</span>
+            </div>
+
+            <div className="grid grid-cols-2 gap-y-3.5 gap-x-4 text-xs">
+              <div className="flex flex-col">
+                <span className="text-[#8e8e93] text-[11px] font-medium block mb-1">Wallet Balance</span>
+                <span className="font-extrabold text-white text-base tracking-wide">
+                  {hideBalance ? "••••" : `$${userFuturesUsdt.toFixed(2)}`}
                 </span>
               </div>
 
-              {/* Right: Balance Info + Dark Pill Trade Button */}
-              <div className="flex items-center gap-3.5">
-                <div className="flex flex-col items-end gap-0.5 text-right font-mono">
-                  <span className="font-semibold text-xs text-white leading-none">
-                    {hideBalance ? "••••" : item.amount}
-                  </span>
-                  <span className="text-[11px] text-[#8e8e93] leading-none">
-                    {hideBalance ? "≈ •••• USD" : `≈ ${item.usdValStr}`}
-                  </span>
-                </div>
+              <div className="flex flex-col">
+                <span className="text-[#8e8e93] text-[11px] font-medium block mb-1">Available Margin</span>
+                <span className="font-extrabold text-white text-base tracking-wide">
+                  {hideBalance ? "••••" : `$${userFuturesUsdt.toFixed(2)}`}
+                </span>
+              </div>
 
+              <div className="flex flex-col">
+                <span className="text-[#8e8e93] text-[11px] font-medium block mb-1">Position Margin</span>
+                <span className="font-extrabold text-white text-base tracking-wide">$0.00</span>
+              </div>
+
+              <div className="flex flex-col">
+                <span className="text-[#8e8e93] text-[11px] font-medium block mb-1">Unrealized P&L</span>
+                <span className="font-extrabold text-white text-base tracking-wide">0.00 USDT</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Futures Assets / Contracts list */}
+          <div className="flex flex-col gap-2">
+            <span className="text-xs font-bold text-[#8e8e93] px-1">Futures Assets</span>
+
+            <div className="bg-[#121620]/80 border border-[#1e2533] p-3.5 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CoinLogo symbol="USDT" size="w-8 h-8" />
+                <div className="flex flex-col">
+                  <span className="font-bold text-xs text-white">USDT Futures Margin</span>
+                  <span className="text-[11px] text-[#8e8e93]">Tether Perpetual</span>
+                </div>
+              </div>
+
+              <div className="flex flex-col items-end font-mono">
+                <span className="font-bold text-xs text-white">
+                  {hideBalance ? "••••" : `${userFuturesUsdt.toFixed(2)} USDT`}
+                </span>
+                <span className="text-[11px] text-[#38bdf8]">
+                  {hideBalance ? "••••" : `Avail: ${userFuturesUsdt.toFixed(2)} USDT`}
+                </span>
+              </div>
+            </div>
+
+            <div className="bg-[#121620]/80 border border-[#1e2533] p-3.5 rounded-xl flex items-center justify-between">
+              <div className="flex items-center gap-3">
+                <CoinLogo symbol="BTC" size="w-8 h-8" />
+                <div className="flex flex-col">
+                  <span className="font-bold text-xs text-white">BTCUSDT Perpetual</span>
+                  <span className="text-[11px] text-[#8e8e93]">Contract Positions</span>
+                </div>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <span className="text-xs text-gray-400 font-mono">0 Positions</span>
                 <button
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    handleTradeClick(item);
-                  }}
-                  className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs px-4 py-1.5 rounded-full transition-colors active:scale-95 border border-transparent hover:border-[#2b3548]"
+                  onClick={() => router.push('/futures')}
+                  className="text-xs font-bold text-[#22c55e] bg-[#22c55e]/10 px-2.5 py-1 rounded-full hover:bg-[#22c55e]/20"
                 >
                   Trade
                 </button>
               </div>
             </div>
-          ))
-        )}
-
-        {/* How to Deposit Section (Bottom of Assets List) */}
-        <div className="w-full text-left mt-6 pt-4 pb-8 border-t border-[#141822]">
-          <h4 className="text-sm font-bold text-white mb-3">
-            How to Deposit
-          </h4>
-          <div className="flex flex-col gap-3 text-xs">
-            <div className="flex items-start gap-2.5">
-              <span className="text-[#aeff00] font-extrabold text-xs mt-0.5">1.</span>
-              <div>
-                <p className="font-semibold text-white">Tap "Deposit"</p>
-                <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Click the Deposit button above or select a coin to open deposit details.</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-2.5">
-              <span className="text-[#aeff00] font-extrabold text-xs mt-0.5">2.</span>
-              <div>
-                <p className="font-semibold text-white">Select Asset & Network</p>
-                <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Choose cryptocurrency (USDT, BTC, ETH) and matching network (TRC20, BEP20).</p>
-              </div>
-            </div>
-
-            <div className="flex items-start gap-2.5">
-              <span className="text-[#aeff00] font-extrabold text-xs mt-0.5">3.</span>
-              <div>
-                <p className="font-semibold text-white">Copy Address & Send</p>
-                <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Scan QR code or copy deposit address to complete your transfer.</p>
-              </div>
-            </div>
           </div>
 
-          {/* Plain Text Video Tutorial Link */}
-          <div className="mt-3 pt-2 text-xs text-left">
-            <span className="text-[#8e8e93]">Watch tutorial: </span>
-            <a
-              href="https://www.youtube.com/results?search_query=how+to+deposit+crypto+exchange"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[#aeff00] font-extrabold hover:underline cursor-pointer inline-flex items-center gap-1"
-            >
-              <span>video click here</span>
-              <span className="text-[10px]">↗</span>
-            </a>
+          {/* How Futures Works Guide */}
+          <div className="w-full text-left mt-2 pt-4 pb-8 border-t border-[#141822]">
+            <h4 className="text-sm font-bold text-white mb-3">How Futures Trading Works</h4>
+            <div className="flex flex-col gap-3 text-xs">
+              <div className="flex items-start gap-2.5">
+                <span className="text-[#22c55e] font-extrabold text-xs mt-0.5">1.</span>
+                <div>
+                  <p className="font-semibold text-white">Transfer Funds to Futures</p>
+                  <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Move USDT from your Spot Account to Futures Account with 0 fees.</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <span className="text-[#22c55e] font-extrabold text-xs mt-0.5">2.</span>
+                <div>
+                  <p className="font-semibold text-white">Select Leverage & Direction</p>
+                  <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Choose up to 100x leverage and select Long (Buy) or Short (Sell).</p>
+                </div>
+              </div>
+
+              <div className="flex items-start gap-2.5">
+                <span className="text-[#22c55e] font-extrabold text-xs mt-0.5">3.</span>
+                <div>
+                  <p className="font-semibold text-white">Manage & Close Positions</p>
+                  <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Set Take Profit / Stop Loss orders and close position to lock in profit.</p>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
-      </div>
+      ) : (
+        /* OVERVIEW & SPOT SECTIONS VIEW */
+        <div className="px-4 mt-1 flex flex-col gap-2">
+          {/* Filter & Search & History Header Line */}
+          <div className="flex items-center justify-between border-b border-[#141822] pb-2 gap-2">
+            {/* History Option */}
+            <button 
+              onClick={() => router.push('/history')}
+              className="flex items-center gap-1.5 text-xs font-semibold text-[#8e8e93] hover:text-white transition-colors cursor-pointer group py-1 shrink-0"
+              title="Real-time Transaction History"
+            >
+              <History className="w-4 h-4 text-[#8e8e93] group-hover:text-[#38bdf8] transition-colors" />
+              <span className="group-hover:text-white">History</span>
+            </button>
+
+            {/* Real-time History Banner Box */}
+            <div 
+              onClick={() => router.push('/history')}
+              className="flex-1 bg-[#18191d] hover:bg-[#22242a] border border-white/5 rounded-2xl px-3.5 py-2.5 flex items-center justify-between gap-2 cursor-pointer transition-all shadow-md overflow-hidden"
+            >
+              <div className="flex items-center gap-2 truncate">
+                <span className={`w-2 h-2 rounded-full shrink-0 ${
+                  latestHistoryStatus === 'Pending' ? 'bg-amber-400 animate-ping' :
+                  latestHistoryStatus === 'Rejected' ? 'bg-red-500' : 'bg-[#0ecb81]'
+                }`}></span>
+                <span className="text-xs sm:text-sm font-medium text-[#8e8e93] truncate">
+                  {latestHistoryText || 'you have recive 0.5$'}
+                </span>
+              </div>
+
+              <div className="flex items-center gap-1 shrink-0">
+                <span className={`text-xs sm:text-sm font-medium ${
+                  latestHistoryStatus === 'Pending' ? 'text-amber-400' :
+                  latestHistoryStatus === 'Rejected' ? 'text-red-400' : 'text-[#0ecb81]'
+                }`}>
+                  {latestHistoryStatus || 'Completed'}
+                </span>
+                <ChevronRight className="w-4 h-4 text-[#0ecb81]" />
+              </div>
+            </div>
+
+            {/* Search Icon */}
+            <button 
+              onClick={() => setShowSearch(!showSearch)}
+              className="text-[#8e8e93] hover:text-white p-1 transition-colors shrink-0"
+              title="Search assets"
+            >
+              <Search className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Expandable Search Input Bar */}
+          {showSearch && (
+            <div className="mt-1">
+              <input
+                type="text"
+                placeholder="Search coin..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                className="w-full bg-[#121620] border border-[#1e2533] rounded-xl px-3 py-2 text-xs text-white outline-none focus:border-[#38bdf8] transition-colors"
+              />
+            </div>
+          )}
+
+          {/* Checkbox Line: [ ] Hide small balances */}
+          <div className="flex items-center gap-2 pt-1 pb-2">
+            <input
+              type="checkbox"
+              id="hideSmall"
+              checked={hideSmallBalances}
+              onChange={(e) => setHideSmallBalances(e.target.checked)}
+              className="w-3.5 h-3.5 accent-[#38bdf8] bg-[#121620] border-[#2b3548] rounded cursor-pointer"
+            />
+            <label htmlFor="hideSmall" className="text-xs text-[#8e8e93] cursor-pointer select-none hover:text-gray-300">
+              Hide small balances
+            </label>
+          </div>
+
+          {/* ASSET ITEMS BALANCES LIST */}
+          <div className="pb-24 flex flex-col gap-1">
+            {filteredBalances.length === 0 ? (
+              <div className="text-center py-8 text-xs text-[#8e8e93]">No assets found</div>
+            ) : (
+              filteredBalances.map((item) => {
+                // If in Spot tab, USDT item displays userSpotUsdt
+                const isUsdt = item.symbol === 'USDT';
+                const displayAmt = topTab === 'Spot' && isUsdt ? userSpotUsdt.toFixed(2) : item.amount;
+                const displayUsdStr = topTab === 'Spot' && isUsdt ? `${userSpotUsdt.toFixed(2)} USD` : item.usdValStr;
+
+                return (
+                  <div
+                    key={item.symbol}
+                    className="flex items-center justify-between py-3 hover:bg-[#121620]/60 px-1 rounded-xl transition-colors group cursor-pointer"
+                    onClick={() => {
+                      setSelectedAsset({
+                        ...item,
+                        amount: displayAmt,
+                        usdValStr: displayUsdStr
+                      });
+                      setActiveModal('assetDetail');
+                    }}
+                  >
+                    {/* Left: Coin Icon + Symbol */}
+                    <div className="flex items-center gap-3">
+                      <CoinLogo symbol={item.symbol} size="w-9 h-9" />
+
+                      <div className="flex flex-col">
+                        <span className="font-semibold text-sm text-gray-100 tracking-wide">
+                          {item.symbol}
+                        </span>
+                        {topTab === 'Overview' && isUsdt && userFuturesUsdt > 0 && (
+                          <span className="text-[10px] text-[#38bdf8] font-medium leading-none mt-0.5">
+                            Spot + Futures
+                          </span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Right: Balance Info + Dark Pill Trade Button */}
+                    <div className="flex items-center gap-3.5">
+                      <div className="flex flex-col items-end gap-0.5 text-right font-mono">
+                        <span className="font-semibold text-xs text-white leading-none">
+                          {hideBalance ? "••••" : displayAmt}
+                        </span>
+                        <span className="text-[11px] text-[#8e8e93] leading-none">
+                          {hideBalance ? "≈ •••• USD" : `≈ ${displayUsdStr}`}
+                        </span>
+                      </div>
+
+                      <button
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleTradeClick(item);
+                        }}
+                        className="bg-[#1c2029] hover:bg-[#282f3d] text-white font-semibold text-xs px-4 py-1.5 rounded-full transition-colors active:scale-95 border border-transparent hover:border-[#2b3548]"
+                      >
+                        Trade
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+
+            {/* How to Deposit Section */}
+            <div className="w-full text-left mt-6 pt-4 pb-8 border-t border-[#141822]">
+              <h4 className="text-sm font-bold text-white mb-3">
+                How to Deposit
+              </h4>
+              <div className="flex flex-col gap-3 text-xs">
+                <div className="flex items-start gap-2.5">
+                  <span className="text-[#aeff00] font-extrabold text-xs mt-0.5">1.</span>
+                  <div>
+                    <p className="font-semibold text-white">Tap "Deposit"</p>
+                    <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Click the Deposit button above or select a coin to open deposit details.</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <span className="text-[#aeff00] font-extrabold text-xs mt-0.5">2.</span>
+                  <div>
+                    <p className="font-semibold text-white">Select Asset & Network</p>
+                    <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Choose cryptocurrency (USDT, BTC, ETH) and matching network (TRC20, BEP20).</p>
+                  </div>
+                </div>
+
+                <div className="flex items-start gap-2.5">
+                  <span className="text-[#aeff00] font-extrabold text-xs mt-0.5">3.</span>
+                  <div>
+                    <p className="font-semibold text-white">Copy Address & Send</p>
+                    <p className="text-[11px] text-[#8e8e93] mt-0.5 leading-relaxed">Scan QR code or copy deposit address to complete your transfer.</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Plain Text Video Tutorial Link */}
+              <div className="mt-3 pt-2 text-xs text-left">
+                <span className="text-[#8e8e93]">Watch tutorial: </span>
+                <a
+                  href="https://www.youtube.com/results?search_query=how+to+deposit+crypto+exchange"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-[#aeff00] font-extrabold hover:underline cursor-pointer inline-flex items-center gap-1"
+                >
+                  <span>video click here</span>
+                  <span className="text-[10px]">↗</span>
+                </a>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
         </>
       )}
 
@@ -1939,36 +2341,237 @@ export default function AssetsVault() {
         </div>
       )}
 
-      {/* Transfer Modal */}
+      {/* ---------------- 1:1 EXACT MATCH TRANSFER SCREEN (Matching User Screenshot) ---------------- */}
       {activeModal === 'transfer' && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end justify-center">
-          <div className="w-full max-w-[430px] bg-[#121620] border-t border-[#232b38] rounded-t-3xl p-5 flex flex-col gap-4 text-white">
-            <div className="flex items-center justify-between border-b border-[#232b38] pb-3">
-              <span className="font-extrabold text-base">Internal Transfer</span>
-              <button onClick={() => setActiveModal(null)}>
-                <X className="w-5 h-5 text-[#8e8e93]" />
+        <div className="fixed inset-0 z-50 flex justify-center bg-black animate-in fade-in duration-200">
+          <div className="w-full max-w-[430px] h-full bg-black text-white flex flex-col relative overflow-hidden select-none">
+            
+            {/* Top Header Bar */}
+            <div className="px-4 py-3.5 flex items-center justify-between border-b border-[#1c1c1e] bg-black">
+              <button 
+                onClick={() => setActiveModal(null)}
+                className="p-1 text-white hover:text-gray-300 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+
+              <h2 className="font-extrabold text-base text-white tracking-wide">Transfer</h2>
+
+              <button 
+                onClick={() => router.push('/history')}
+                className="p-1 text-gray-300 hover:text-white transition-colors cursor-pointer"
+                title="Transfer History"
+              >
+                <FileText className="w-5 h-5" />
               </button>
             </div>
 
-            <div className="flex flex-col gap-3">
-              <div className="bg-[#0a0d14] p-3 rounded-xl border border-[#1e2533] flex items-center justify-between text-xs">
-                <div>
-                  <span className="text-[#8e8e93] block">From</span>
-                  <span className="font-bold text-white">Spot Account</span>
+            <div className="flex-1 overflow-y-auto px-4 py-4 flex flex-col gap-4 no-scrollbar pb-24">
+              
+              {/* From / To Account Selection Box */}
+              <div className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-2xl p-4 flex items-center justify-between relative shadow-lg">
+                <div className="flex flex-col gap-3 flex-1 pr-2">
+                  
+                  {/* From Row */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-[#8e8e93] w-10">From</span>
+                    <button 
+                      onClick={() => {
+                        setTransferFrom(prev => prev === 'Spot' ? 'Futures' : 'Spot');
+                        setTransferTo(prev => prev === 'Futures' ? 'Spot' : 'Futures');
+                      }}
+                      className="flex items-center gap-1.5 text-xs font-bold text-white hover:text-[#38bdf8] transition-colors cursor-pointer"
+                    >
+                      <span>{transferFrom === 'Spot' ? 'Spot' : 'USDⓈ-M Futures'}</span>
+                      <ChevronRight className="w-4 h-4 text-[#8e8e93]" />
+                    </button>
+                  </div>
+
+                  {/* To Row */}
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs font-semibold text-[#8e8e93] w-10">To</span>
+                    <button 
+                      onClick={() => {
+                        setTransferFrom(prev => prev === 'Spot' ? 'Futures' : 'Spot');
+                        setTransferTo(prev => prev === 'Futures' ? 'Spot' : 'Futures');
+                      }}
+                      className="flex items-center gap-1.5 text-xs font-bold text-white hover:text-[#38bdf8] transition-colors cursor-pointer"
+                    >
+                      <span>{transferTo === 'Futures' ? 'USDⓈ-M Futures' : 'Spot'}</span>
+                      <ChevronRight className="w-4 h-4 text-[#8e8e93]" />
+                    </button>
+                  </div>
+
                 </div>
-                <ArrowRightLeft className="w-4 h-4 text-[#38bdf8]" />
-                <div className="text-right">
-                  <span className="text-[#8e8e93] block">To</span>
-                  <span className="font-bold text-white">Futures Account</span>
-                </div>
+
+                {/* Right Side Vertical Swap Button */}
+                <button
+                  onClick={() => {
+                    setTransferFrom(prev => prev === 'Spot' ? 'Futures' : 'Spot');
+                    setTransferTo(prev => prev === 'Futures' ? 'Spot' : 'Futures');
+                  }}
+                  className="p-2.5 rounded-xl text-[#8e8e93] hover:text-white hover:bg-[#2c2c2e] transition-all active:scale-90 cursor-pointer"
+                  title="Swap From / To"
+                >
+                  <ArrowRightLeft className="w-5 h-5 rotate-90" />
+                </button>
               </div>
 
+              {/* Coin Section */}
+              <div>
+                <label className="block text-xs font-semibold text-[#8e8e93] mb-1.5">Coin</label>
+                
+                <div 
+                  onClick={() => setActiveModal('transferSelectCoin')}
+                  className="bg-[#1c1c1e] border border-[#2c2c2e] rounded-2xl p-3.5 flex items-center justify-between cursor-pointer hover:border-gray-500 transition-colors"
+                >
+                  <div className="flex items-center gap-3">
+                    <CoinLogo symbol={selectedTransferCoin} size="w-7 h-7" />
+                    <div className="flex items-center gap-1.5">
+                      <span className="font-extrabold text-sm text-white">{selectedTransferCoin}</span>
+                      <span className="text-xs text-[#8e8e93]">
+                        {ALL_TRANSFER_COINS.find(c => c.symbol === selectedTransferCoin)?.name || 'TetherUS'}
+                      </span>
+                    </div>
+                  </div>
+                  <ChevronRight className="w-4 h-4 text-[#8e8e93]" />
+                </div>
+
+                {/* Red warning message if available balance is 0 */}
+                {(() => {
+                  const availBal = getCoinAvailableBalance(selectedTransferCoin);
+                  if (availBal <= 0) {
+                    return (
+                      <p className="text-xs text-red-500 font-medium mt-2 leading-tight">
+                        No amount available to transfer, please select another coin.
+                      </p>
+                    );
+                  }
+                  return null;
+                })()}
+              </div>
+
+              {/* Amount Section */}
+              <div>
+                <label className="block text-xs font-semibold text-[#8e8e93] mb-1.5">Amount</label>
+                
+                <div className="bg-[#1c1c1e] border border-[#2c2c2e] focus-within:border-[#38bdf8] rounded-2xl px-3.5 py-3 flex items-center justify-between transition-colors">
+                  <input
+                    type="number"
+                    placeholder="Minimum 0.00000001"
+                    value={transferAmount}
+                    onChange={(e) => setTransferAmount(e.target.value)}
+                    className="w-full bg-transparent text-sm font-semibold text-white placeholder-gray-500 outline-none pr-3"
+                  />
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="text-xs font-extrabold text-white">{selectedTransferCoin}</span>
+                    <button
+                      onClick={() => {
+                        const maxVal = getCoinAvailableBalance(selectedTransferCoin);
+                        setTransferAmount(maxVal.toString());
+                      }}
+                      className="text-xs font-extrabold text-[#fcd535] hover:text-[#ebd02c] cursor-pointer transition-colors"
+                    >
+                      Max
+                    </button>
+                  </div>
+                </div>
+
+                {/* Available Balance Subtitle */}
+                <p className="text-xs text-[#8e8e93] font-medium mt-1.5">
+                  Available {getCoinAvailableBalance(selectedTransferCoin)} {selectedTransferCoin}
+                </p>
+              </div>
+
+            </div>
+
+            {/* Bottom Fixed Action Button */}
+            <div className="absolute bottom-0 left-0 right-0 bg-black/95 border-t border-[#1c1c1e] p-4 z-20">
               <button 
-                onClick={() => setActiveModal(null)}
-                className="w-full bg-white text-black font-extrabold py-3 rounded-xl text-xs active:scale-95 transition-transform"
+                onClick={handleTransferSubmit}
+                disabled={transferSubmitting}
+                className="w-full bg-[#fcd535] hover:bg-[#ebd02c] disabled:opacity-50 text-black font-extrabold text-sm py-3.5 rounded-2xl active:scale-95 transition-all shadow-lg cursor-pointer text-center"
               >
-                Transfer Now
+                {transferSubmitting ? "Processing..." : "Confirm Transfer"}
               </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* ---------------- TRANSFER COIN SELECTOR MODAL ---------------- */}
+      {activeModal === 'transferSelectCoin' && (
+        <div className="fixed inset-0 z-50 flex justify-center bg-black sm:bg-black/90 animate-in fade-in duration-200">
+          <div className="w-full max-w-[430px] h-full bg-black text-white flex flex-col relative overflow-hidden select-none">
+            {/* Top Header */}
+            <div className="px-4 py-3.5 flex items-center justify-between border-b border-[#1c1c1e]">
+              <button 
+                onClick={() => setActiveModal('transfer')}
+                className="p-1 text-white hover:text-gray-300 transition-colors cursor-pointer"
+              >
+                <ArrowLeft className="w-5 h-5" />
+              </button>
+              <h2 className="font-extrabold text-base text-white">Select Coin</h2>
+              <div className="w-5" />
+            </div>
+
+            <div className="flex-1 overflow-y-auto px-4 py-3 flex flex-col gap-4 no-scrollbar">
+              {/* Search Input */}
+              <div className="relative">
+                <Search className="w-4 h-4 text-gray-400 absolute left-3.5 top-3" />
+                <input
+                  type="text"
+                  placeholder="Search coin..."
+                  value={transferCoinSearchQuery}
+                  onChange={(e) => setTransferCoinSearchQuery(e.target.value)}
+                  className="w-full bg-[#1c1c1e] border border-[#2c2c2e] rounded-xl pl-10 pr-4 py-2.5 text-xs text-white placeholder-gray-500 outline-none focus:border-[#38bdf8]"
+                />
+              </div>
+
+              {/* Coin List */}
+              <div className="flex flex-col gap-2">
+                <span className="text-xs font-bold text-[#8e8e93] px-1 mb-0.5">Crypto Assets & Balances</span>
+
+                {ALL_TRANSFER_COINS
+                  .filter(c => c.symbol.toLowerCase().includes(transferCoinSearchQuery.toLowerCase()) || c.name.toLowerCase().includes(transferCoinSearchQuery.toLowerCase()))
+                  .map((coin) => {
+                    const avail = getCoinAvailableBalance(coin.symbol);
+                    const isSelected = selectedTransferCoin === coin.symbol;
+                    return (
+                      <button
+                        key={coin.symbol}
+                        onClick={() => {
+                          setSelectedTransferCoin(coin.symbol);
+                          setActiveModal('transfer');
+                        }}
+                        className={`flex items-center justify-between p-3.5 rounded-2xl transition-all border text-left cursor-pointer ${
+                          isSelected 
+                            ? 'bg-[#1c2c38] border-[#38bdf8]' 
+                            : 'bg-[#1c1c1e] hover:bg-[#2c2c2e] border-[#2c2c2e]'
+                        }`}
+                      >
+                        <div className="flex items-center gap-3">
+                          <CoinLogo symbol={coin.symbol} size="w-8 h-8" />
+                          <div className="flex flex-col">
+                            <span className="font-extrabold text-sm text-white">{coin.symbol}</span>
+                            <span className="text-xs text-[#8e8e93]">{coin.name}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex flex-col items-end font-mono">
+                          <span className="text-xs font-bold text-white">
+                            {avail} {coin.symbol}
+                          </span>
+                          <span className="text-[11px] text-[#8e8e93]">
+                            Available
+                          </span>
+                        </div>
+                      </button>
+                    );
+                  })
+                }
+              </div>
             </div>
           </div>
         </div>
@@ -2052,104 +2655,6 @@ export default function AssetsVault() {
                 Close
               </button>
             </div>
-          </div>
-        </div>
-      )}
-
-      {/* REAL-TIME TRANSACTION HISTORY MODAL */}
-      {activeModal === 'history' && (
-        <div className="fixed inset-0 z-50 bg-black/80 flex items-end sm:items-center justify-center">
-          <div className="w-full max-w-[440px] bg-[#121620] border-t sm:border border-[#232b38] rounded-t-3xl sm:rounded-3xl p-5 flex flex-col gap-4 text-white max-h-[85vh] shadow-2xl">
-            
-            {/* Modal Header */}
-            <div className="flex items-center justify-between border-b border-[#232b38] pb-3">
-              <div className="flex items-center gap-2">
-                <History className="w-5 h-5 text-[#38bdf8]" />
-                <span className="font-extrabold text-base text-white">Transaction History</span>
-                <span className="flex items-center gap-1 bg-[#25c26e]/10 border border-[#25c26e]/30 px-2 py-0.5 rounded-full text-[10px] text-[#25c26e] font-bold">
-                  <span className="w-1.5 h-1.5 rounded-full bg-[#25c26e] animate-pulse" />
-                  REAL-TIME
-                </span>
-              </div>
-              <button onClick={() => setActiveModal(null)} className="p-1 hover:text-white text-[#8e8e93]">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            {/* Filter Tabs (All, Deposit, Withdraw, Transfer, Trade) */}
-            <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar pb-1">
-              {['All', 'Deposit', 'Withdraw', 'Transfer', 'Trade'].map((tab) => (
-                <button
-                  key={tab}
-                  onClick={() => setHistoryFilter(tab)}
-                  className={`px-3 py-1.5 rounded-xl text-xs font-semibold whitespace-nowrap transition-colors ${
-                    historyFilter === tab 
-                      ? 'bg-[#38bdf8] text-black font-extrabold' 
-                      : 'bg-[#1a212e] text-[#8e8e93] hover:text-white'
-                  }`}
-                >
-                  {tab}
-                </button>
-              ))}
-            </div>
-
-            {/* Transactions List */}
-            <div className="flex flex-col gap-2.5 overflow-y-auto max-h-[420px] pr-1">
-              {transactions
-                .filter(t => historyFilter === 'All' || t.type.toLowerCase() === historyFilter.toLowerCase())
-                .length === 0 ? (
-                  <div className="text-center py-10 text-xs text-[#8e8e93]">No transactions found</div>
-                ) : (
-                  transactions
-                    .filter(t => historyFilter === 'All' || t.type.toLowerCase() === historyFilter.toLowerCase())
-                    .map((tx) => {
-                      let IconComponent = ArrowDownLeft;
-                      let iconBg = 'bg-[#25c26e]/10 text-[#25c26e]';
-                      if (tx.type === 'Withdraw') {
-                        IconComponent = ArrowUpRight;
-                        iconBg = 'bg-[#ef4444]/10 text-[#ef4444]';
-                      } else if (tx.type === 'Transfer') {
-                        IconComponent = ArrowRightLeft;
-                        iconBg = 'bg-[#38bdf8]/10 text-[#38bdf8]';
-                      } else if (tx.type === 'Trade') {
-                        IconComponent = RefreshCw;
-                        iconBg = 'bg-[#a855f7]/10 text-[#a855f7]';
-                      }
-
-                      return (
-                        <div 
-                          key={tx.id} 
-                          className="bg-[#0a0d14] border border-[#1e2533] hover:border-[#2b3548] p-3.5 rounded-2xl flex items-center justify-between transition-colors"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div className={`p-2.5 rounded-xl ${iconBg}`}>
-                              <IconComponent className="w-4 h-4" />
-                            </div>
-                            <div className="flex flex-col gap-0.5">
-                              <span className="font-bold text-xs text-white flex items-center gap-1.5">
-                                {tx.type}
-                                <span className="text-[10px] text-[#8e8e93] font-normal font-mono">{tx.time}</span>
-                              </span>
-                              <span className="text-[11px] text-[#8e8e93] font-mono">
-                                Hash: {tx.txHash}
-                              </span>
-                            </div>
-                          </div>
-
-                          <div className="text-right flex flex-col gap-0.5">
-                            <span className="font-extrabold text-xs text-white font-mono">
-                              {tx.amount}
-                            </span>
-                            <span className="text-[10px] text-[#25c26e] font-semibold bg-[#25c26e]/10 px-1.5 py-0.5 rounded text-right w-fit ml-auto">
-                              {tx.status}
-                            </span>
-                          </div>
-                        </div>
-                      );
-                    })
-                )}
-            </div>
-
           </div>
         </div>
       )}

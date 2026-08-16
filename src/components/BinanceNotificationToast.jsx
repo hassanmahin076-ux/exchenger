@@ -235,6 +235,7 @@ export default function BinanceNotificationToast() {
 
       try {
         const res = await fetch(`/api/user/notifications?uid=${encodeURIComponent(uid)}&email=${encodeURIComponent(email)}`);
+        if (!res.ok) return;
         const data = await res.json();
 
         if (isMounted && data.success && data.notifications && data.notifications.length > 0) {
@@ -263,10 +264,10 @@ export default function BinanceNotificationToast() {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({ notificationId: unreadNotif.id })
-          });
+          }).catch(() => {});
         }
       } catch (err) {
-        console.error('Error checking server notifications:', err);
+        // Silently catch fetch errors (e.g. server restarting or offline)
       }
     };
 

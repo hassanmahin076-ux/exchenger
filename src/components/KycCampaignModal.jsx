@@ -58,7 +58,7 @@ export default function KycCampaignModal() {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
       {/* Phone-width overlay container matching site mobile border */}
-      <div className="w-full max-w-[430px] h-full flex flex-col items-center justify-center p-4 bg-black/75 backdrop-blur-sm pointer-events-auto relative animate-fadeIn">
+      <div className="w-full max-w-[430px] h-full flex flex-col items-center justify-center p-4 bg-black/75 backdrop-blur-sm pointer-events-auto relative animate-fadeIn border-x border-[#1a1f2c] shadow-[0_0_80px_rgba(0,0,0,0.95)]">
         
         {/* Overlay Backdrop Click inside phone frame */}
         <div 

@@ -44,6 +44,7 @@ export default function ReferralPage() {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isRecordsOpen, setIsRecordsOpen] = useState(false);
   const [activeTab, setActiveTab] = useState('all');
+  const [referralList, setReferralList] = useState([]);
 
   const startPageLoading = () => {
     setIsLoading(true);
@@ -65,7 +66,7 @@ export default function ReferralPage() {
       let customCode = DEFAULT_CODE;
       if (savedUid) {
         const cleanUid = savedUid.replace(/\D/g, '');
-        const suffix = (cleanUid + '8392').slice(-4);
+        const suffix = cleanUid.length >= 4 ? cleanUid.slice(-4) : cleanUid;
         customCode = `PKMX${suffix}`;
       } else if (savedEmail) {
         const hash = Math.abs(savedEmail.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0)).toString(36).toUpperCase();
@@ -76,8 +77,39 @@ export default function ReferralPage() {
       setInviteCode(customCode);
       const origin = window.location.origin;
       setInviteLink(`${origin}/home?invCode=${customCode}`);
+
+      // Fetch referrals from database API
+      if (savedUid || savedEmail) {
+        fetch(`/api/user/referrals?uid=${encodeURIComponent(savedUid || '')}&email=${encodeURIComponent(savedEmail || '')}`)
+          .then(res => res.json())
+          .then(data => {
+            if (data.success) {
+              if (data.referrals) {
+                setReferralList(data.referrals);
+              }
+              if (data.userRefCode) {
+                setInviteCode(data.userRefCode);
+                setInviteLink(`${origin}/home?invCode=${data.userRefCode}`);
+              }
+            }
+          })
+          .catch(err => console.warn('Referrals fetch error:', err));
+      }
     }
   }, []);
+
+  const getAvatarUrl = (user) => {
+    if (user?.avatarUrl && !user.avatarUrl.includes('default-user')) {
+      return user.avatarUrl;
+    }
+    const str = String(user?.email || user?.uid || user?.id || 'user');
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      hash = str.charCodeAt(i) + ((hash << 5) - hash);
+    }
+    const avatarNum = (Math.abs(hash) % 70) + 1;
+    return `https://i.pravatar.cc/150?img=${avatarNum}`;
+  };
 
   const showToast = (message) => {
     setToast(message);
@@ -441,17 +473,89 @@ export default function ReferralPage() {
           
           {/* Section Header Row */}
           <div className="flex items-center justify-between">
-            <h3 className="text-white text-base sm:text-lg font-black tracking-tight">
-              Referral Overview
-            </h3>
+            <div className="flex items-center gap-2">
+              <h3 className="text-white text-base sm:text-lg font-black tracking-tight">
+                Referral Overview
+              </h3>
+              <span className="text-xs bg-[#1f2613] text-[#8cff00] font-mono font-bold px-2 py-0.5 rounded-full border border-[#8cff00]/30">
+                {referralList.length} Total
+              </span>
+            </div>
+          </div>
 
-            <button
-              onClick={() => setIsRecordsOpen(true)}
-              className="text-gray-400 hover:text-[#8cff00] text-xs font-semibold flex items-center gap-1 transition-colors cursor-pointer"
-            >
-              <span>All Records</span>
-              <ChevronRight className="w-4 h-4" />
-            </button>
+          {/* Referral Cards List */}
+          <div className="flex flex-col gap-3">
+            {referralList.length === 0 ? (
+              <div className="bg-[#0c0f16]/60 backdrop-blur-2xl border border-white/10 rounded-[22px] p-5 flex flex-col items-center justify-center text-center gap-2">
+                <div className="w-12 h-12 rounded-full bg-[#181c28] border border-white/10 flex items-center justify-center text-gray-500 mb-1">
+                  <Users className="w-6 h-6" />
+                </div>
+                <p className="text-xs font-bold text-gray-300">No Referred Users Yet</p>
+                <p className="text-[11px] text-gray-400 max-w-[280px]">
+                  Share your invitation code to invite friends and get $0.50 + 40% rebate!
+                </p>
+              </div>
+            ) : (
+              referralList.map((refUser, idx) => (
+                <div
+                  key={refUser.id || idx}
+                  className="bg-[#0c0f16]/80 backdrop-blur-2xl border border-white/10 hover:border-white/20 rounded-[22px] p-4 flex items-center justify-between gap-3 shadow-lg transition-all"
+                >
+                  {/* Left: User Avatar & Email + User ID */}
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-full bg-gradient-to-br from-[#1a1f2c] to-[#0d1017] border border-white/20 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
+                      <img 
+                        src={getAvatarUrl(refUser)} 
+                        alt="User Profile Avatar" 
+                        className="w-full h-full object-cover rounded-full"
+                        onError={(e) => {
+                          e.target.style.display = 'none';
+                          if (e.target.nextSibling) {
+                            e.target.nextSibling.style.display = 'flex';
+                          }
+                        }}
+                      />
+                      <span className="hidden font-mono font-black text-sm text-[#8cff00]">
+                        {refUser.email ? refUser.email.charAt(0).toUpperCase() : 'U'}
+                      </span>
+                    </div>
+
+                    <div className="flex flex-col gap-0.5">
+                      <span className="font-bold text-xs text-white truncate max-w-[170px] sm:max-w-[210px]">
+                        {refUser.email || refUser.maskedEmail || `User_${refUser.uid}`}
+                      </span>
+                      <div className="flex items-center gap-1.5 text-[11px] text-gray-400 font-mono">
+                        <span>UID: {refUser.uid}</span>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Right: KYC Status Badge & Bonus Text */}
+                  <div className="flex flex-col items-end gap-1">
+                    {refUser.kycStatus === 'verified' ? (
+                      <>
+                        <span className="text-[10px] font-extrabold text-[#0ecb81] bg-[#0ecb81]/15 border border-[#0ecb81]/40 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                          <Check className="w-3 h-3 stroke-[3]" />
+                          <span>Verified</span>
+                        </span>
+                        <span className="text-[11px] font-mono font-extrabold text-[#8cff00]">
+                          +0.5$ added
+                        </span>
+                      </>
+                    ) : refUser.kycStatus === 'pending' || refUser.kycStatus === 'under_review' ? (
+                      <span className="text-[10px] font-extrabold text-[#eab308] bg-[#eab308]/15 border border-[#eab308]/40 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                        <span>Pending</span>
+                      </span>
+                    ) : (
+                      <span className="text-[10px] font-extrabold text-gray-400 bg-gray-800/60 border border-gray-600/40 px-2.5 py-0.5 rounded-full flex items-center gap-1 shadow-sm">
+                        <span>Unverified</span>
+                      </span>
+                    )}
+                  </div>
+
+                </div>
+              ))
+            )}
           </div>
 
         </div>
@@ -497,7 +601,7 @@ export default function ReferralPage() {
                   activeTab === 'all' ? 'bg-[#8cff00] text-[#0a2300]' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                All (0)
+                All ({referralList.length})
               </button>
               <button
                 onClick={() => setActiveTab('direct')}
@@ -505,7 +609,7 @@ export default function ReferralPage() {
                   activeTab === 'direct' ? 'bg-[#8cff00] text-[#0a2300]' : 'text-gray-400 hover:text-white'
                 }`}
               >
-                Direct (0)
+                Direct ({referralList.length})
               </button>
               <button
                 onClick={() => setActiveTab('indirect')}
@@ -517,24 +621,84 @@ export default function ReferralPage() {
               </button>
             </div>
 
-            {/* Empty Records State */}
-            <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
-              <div className="w-14 h-14 rounded-full bg-[#1e222e] flex items-center justify-center text-gray-500 border border-[#2b3040]">
-                <FileText className="w-6 h-6" />
+            {/* Records Content */}
+            {referralList.length === 0 ? (
+              <div className="flex flex-col items-center justify-center py-10 gap-3 text-center">
+                <div className="w-14 h-14 rounded-full bg-[#1e222e] flex items-center justify-center text-gray-500 border border-[#2b3040]">
+                  <FileText className="w-6 h-6" />
+                </div>
+                <p className="text-gray-400 text-xs font-medium">
+                  No referral records yet. Share your code to earn 40% rebate!
+                </p>
+                <button
+                  onClick={() => {
+                    setIsRecordsOpen(false);
+                    handleCopyLink();
+                  }}
+                  className="mt-1 bg-[#8cff00] text-[#0a2300] font-black text-xs px-5 py-2.5 rounded-full hover:bg-[#aeff00] transition-all cursor-pointer shadow-md active:scale-95"
+                >
+                  Copy Invite Link
+                </button>
               </div>
-              <p className="text-gray-400 text-xs font-medium">
-                No referral records yet. Share your code to earn 20% rebate!
-              </p>
-              <button
-                onClick={() => {
-                  setIsRecordsOpen(false);
-                  handleCopyLink();
-                }}
-                className="mt-1 bg-[#8cff00] text-[#0a2300] font-black text-xs px-5 py-2.5 rounded-full hover:bg-[#aeff00] transition-all cursor-pointer shadow-md active:scale-95"
-              >
-                Copy Invite Link
-              </button>
-            </div>
+            ) : (
+              <div className="flex flex-col gap-2.5 max-h-[50vh] overflow-y-auto pr-1">
+                {referralList.map((refUser, idx) => (
+                  <div
+                    key={refUser.id || idx}
+                    className="bg-[#1b1e27] border border-[#282d3c] rounded-2xl p-3.5 flex items-center justify-between gap-3 text-xs"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className="w-9 h-9 rounded-full bg-gradient-to-br from-[#1a1f2c] to-[#0d1017] border border-white/20 overflow-hidden flex items-center justify-center shrink-0 shadow-inner">
+                        <img 
+                          src={getAvatarUrl(refUser)} 
+                          alt="User Profile Avatar" 
+                          className="w-full h-full object-cover rounded-full"
+                          onError={(e) => {
+                            e.target.style.display = 'none';
+                            if (e.target.nextSibling) {
+                              e.target.nextSibling.style.display = 'flex';
+                            }
+                          }}
+                        />
+                        <span className="hidden font-mono font-black text-xs text-[#8cff00]">
+                          {refUser.email ? refUser.email.charAt(0).toUpperCase() : 'U'}
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col gap-0.5">
+                        <span className="font-bold text-white font-mono">
+                          {refUser.email || refUser.maskedEmail}
+                        </span>
+                        <span className="text-[11px] text-gray-400 font-mono">
+                          UID: {refUser.uid}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex flex-col items-end gap-1">
+                      {refUser.kycStatus === 'verified' ? (
+                        <>
+                          <span className="text-[10px] font-extrabold text-[#0ecb81] bg-[#0ecb81]/15 px-2 py-0.5 rounded-md">
+                            Verified
+                          </span>
+                          <span className="text-[10px] font-mono text-[#8cff00] font-bold">
+                            +0.5$ added
+                          </span>
+                        </>
+                      ) : refUser.kycStatus === 'pending' || refUser.kycStatus === 'under_review' ? (
+                        <span className="text-[10px] font-extrabold text-[#eab308] bg-[#eab308]/15 px-2 py-0.5 rounded-md">
+                          Pending
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-extrabold text-gray-400 bg-gray-800 px-2 py-0.5 rounded-md">
+                          Unverified
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
 
           </div>
 

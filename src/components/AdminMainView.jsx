@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useRouter, usePathname } from 'next/navigation';
 import {
   LayoutDashboard,
@@ -30,12 +30,46 @@ import {
   Save,
   ChevronDown,
   MoreVertical,
-  Trophy
+  Trophy,
+  Lock,
+  Mail,
+  KeyRound,
+  AlertCircle
 } from 'lucide-react';
 
 export default function AdminMainView() {
   const router = useRouter();
   const pathname = usePathname();
+
+  // PC Admin Email Authorization Guard (prc85476@gmail.com)
+  const REQUIRED_PC_ADMIN_EMAIL = 'prc85476@gmail.com';
+
+  const [isMounted, setIsMounted] = useState(false);
+  const [authorizedPcEmail, setAuthorizedPcEmail] = useState('');
+  const [inputPcEmail, setInputPcEmail] = useState('');
+  const [authError, setAuthError] = useState('');
+
+  useEffect(() => {
+    setIsMounted(true);
+    if (typeof window !== 'undefined') {
+      setAuthorizedPcEmail(localStorage.getItem('adminPcAuthorizedEmail') || '');
+    }
+  }, []);
+
+  const isPcAuthorized = (authorizedPcEmail || '').trim().toLowerCase() === REQUIRED_PC_ADMIN_EMAIL.toLowerCase();
+
+  const handlePcAdminAuthSubmit = (e) => {
+    e.preventDefault();
+    const cleanEmail = (inputPcEmail || '').trim().toLowerCase();
+
+    if (cleanEmail === REQUIRED_PC_ADMIN_EMAIL.toLowerCase()) {
+      localStorage.setItem('adminPcAuthorizedEmail', REQUIRED_PC_ADMIN_EMAIL);
+      setAuthorizedPcEmail(REQUIRED_PC_ADMIN_EMAIL);
+      setAuthError('');
+    } else {
+      setAuthError('Access Denied! The entered Gmail is not authorized for PC Admin Access.');
+    }
+  };
 
   // Search & Chart Hover state
   const [searchQuery, setSearchQuery] = useState('');
@@ -254,6 +288,64 @@ export default function AdminMainView() {
     }
   };
 
+  const handleWithdrawAction = async (withdrawalId, action) => {
+    try {
+      const res = await fetch('/api/admin/withdrawals/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ withdrawalId, action })
+      });
+      const data = await res.json();
+      if (data.success) {
+        showToast(`✅ Withdrawal ${action === 'approve' ? 'Approved' : 'Rejected'} successfully!`);
+        const targetStatus = action === 'approve' ? 'Approved' : 'Rejected';
+        setWithdrawRequests(prev => prev.map(r => 
+          (r.withdrawalId === withdrawalId || r.id === withdrawalId || r.id === `WDR-${withdrawalId}`) 
+            ? { ...r, status: targetStatus } 
+            : r
+        ));
+      } else {
+        showToast(`❌ Error: ${data.error || 'Failed to update withdrawal status'}`);
+      }
+    } catch (err) {
+      console.error('Withdrawal action error:', err);
+      showToast('❌ Server error updating withdrawal status');
+    }
+  };
+
+  // Bulk Approve All KYC Handler
+  const [isSubmittingKycAll, setIsSubmittingKycAll] = useState(false);
+
+  const handleApproveAllKyc = async () => {
+    const pendingCount = usersList.filter(u => u.kycStatus?.toLowerCase() === 'pending' || u.kycStatus?.toLowerCase() === 'unverified').length;
+
+    const confirmApprove = confirm(`Are you sure you want to Approve ALL pending KYC verification applications? Each user will be credited with $2.10 welcome bonus!`);
+    if (!confirmApprove) return;
+
+    setIsSubmittingKycAll(true);
+    try {
+      const res = await fetch('/api/admin/kyc/action', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'approve_all' })
+      });
+      const data = await res.json();
+      setIsSubmittingKycAll(false);
+
+      if (data.success) {
+        showToast(`🎉 Success! Approved all ${data.approvedCount || pendingCount} pending KYC applications!`);
+        fetchAllUsers();
+        fetchDbStats();
+      } else {
+        showToast(`❌ Error: ${data.error || 'Failed to approve all KYC'}`);
+      }
+    } catch (err) {
+      setIsSubmittingKycAll(false);
+      console.error('Approve All KYC Error:', err);
+      showToast('❌ Server error approving all KYC applications');
+    }
+  };
+
   // Redpack State & API Integration
   const [realRedpackList, setRealRedpackList] = useState([]);
   const [showCreateRedpackModal, setShowCreateRedpackModal] = useState(false);
@@ -377,6 +469,15 @@ export default function AdminMainView() {
     fetchStatsData();
     fetchSupportTickets();
     fetchAdminRedPackets();
+
+    // Live sync real-time auto-refresh every 5 seconds
+    const interval = setInterval(() => {
+      fetchUsersData(searchQuery);
+      fetchStatsData();
+      fetchWithdrawalsData();
+    }, 5000);
+
+    return () => clearInterval(interval);
   }, [pathname, searchQuery]);
 
   // Actions connected to PostgreSQL server API
@@ -580,6 +681,79 @@ export default function AdminMainView() {
     { id: 'settings', label: 'Settings', path: '/admin/settings', icon: Settings },
   ];
 
+  if (!isMounted) {
+    return (
+      <div className="min-h-screen bg-[#07080C] text-white flex items-center justify-center p-4">
+        <div className="w-8 h-8 rounded-full border-2 border-amber-400 border-t-transparent animate-spin" />
+      </div>
+    );
+  }
+
+  if (!isPcAuthorized) {
+    return (
+      <div className="min-h-screen bg-[#07080C] text-white flex items-center justify-center p-4 relative overflow-hidden font-sans select-none">
+        <div className="fixed top-1/4 left-1/3 w-96 h-96 bg-amber-500/10 rounded-full blur-[140px] pointer-events-none"></div>
+        <div className="fixed bottom-1/4 right-1/3 w-96 h-96 bg-blue-600/10 rounded-full blur-[140px] pointer-events-none"></div>
+
+        <div className="w-full max-w-md bg-[#10121D]/90 border border-white/10 rounded-3xl p-8 space-y-6 shadow-[0_25px_60px_rgba(0,0,0,0.9)] backdrop-blur-2xl relative z-10">
+          <div className="text-center space-y-3">
+            <div className="w-16 h-16 rounded-2xl bg-gradient-to-tr from-amber-500/20 to-yellow-500/20 border border-amber-500/40 flex items-center justify-center mx-auto shadow-[0_0_25px_rgba(245,158,11,0.25)]">
+              <Shield className="w-8 h-8 text-amber-400" />
+            </div>
+            <h1 className="text-xl font-black tracking-tight text-white">POKYMAX ENTERPRISE ADMIN</h1>
+            <p className="text-xs text-gray-400">Desktop PC Admin Access Verification</p>
+          </div>
+
+          <div className="bg-[#090A12] border border-amber-500/20 rounded-2xl p-4 text-xs text-amber-300 space-y-1">
+            <p className="font-extrabold flex items-center gap-1.5 text-amber-400">
+              <Lock className="w-3.5 h-3.5" />
+              <span>Authentication Required</span>
+            </p>
+            <p className="text-gray-400 text-[11px] leading-relaxed">
+              Please enter your authorized PC Admin Gmail address to unlock control panel.
+            </p>
+          </div>
+
+          {authError && (
+            <div className="bg-red-950/80 border border-red-500/40 rounded-2xl p-3.5 text-xs text-red-200 flex items-start gap-2.5">
+              <AlertCircle className="w-4 h-4 text-red-400 shrink-0 mt-0.5" />
+              <span>{authError}</span>
+            </div>
+          )}
+
+          <form onSubmit={handlePcAdminAuthSubmit} className="space-y-4">
+            <div>
+              <label className="text-xs font-extrabold text-gray-300 block mb-1.5">Admin Gmail Address</label>
+              <div className="relative">
+                <Mail className="w-4 h-4 text-gray-500 absolute left-3.5 top-1/2 -translate-y-1/2" />
+                <input
+                  type="email"
+                  required
+                  placeholder="Enter authorized Admin Gmail"
+                  value={inputPcEmail}
+                  onChange={(e) => setInputPcEmail(e.target.value)}
+                  className="w-full bg-[#06070B] border border-white/15 rounded-2xl pl-10 pr-4 py-3 text-xs text-white placeholder-gray-600 outline-none focus:border-amber-400 transition-colors shadow-inner font-mono font-bold"
+                />
+              </div>
+            </div>
+
+            <button
+              type="submit"
+              className="w-full bg-gradient-to-r from-amber-400 to-amber-500 hover:from-amber-500 hover:to-amber-600 text-black font-black py-3.5 rounded-2xl text-xs flex items-center justify-center gap-2 active:scale-95 transition-all shadow-[0_0_25px_rgba(245,158,11,0.3)] cursor-pointer"
+            >
+              <KeyRound className="w-4 h-4" />
+              <span>Verify & Unlock PC Admin</span>
+            </button>
+          </form>
+
+          <div className="text-center text-[10px] text-gray-500 pt-2 border-t border-white/5">
+            Authorized Administrator Portal • Pokymax Corp
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-[#000000] text-white flex flex-col font-sans selection:bg-[#3B82F6] selection:text-white">
       
@@ -642,7 +816,11 @@ export default function AdminMainView() {
           {/* Logout Button */}
           <div className="p-4 border-t border-[#1F1F1F]">
             <button
-              onClick={() => router.push('/')}
+              onClick={() => {
+                localStorage.removeItem('adminPcAuthorizedEmail');
+                setAuthorizedPcEmail('');
+                router.push('/');
+              }}
               className="w-full py-3 rounded-xl bg-[#111111] hover:bg-red-500/10 border border-[#1F1F1F] hover:border-red-500/30 text-red-400 hover:text-red-300 text-xs font-bold flex items-center justify-center gap-2 transition-all cursor-pointer"
             >
               <LogOut className="w-4 h-4" />
@@ -664,16 +842,15 @@ export default function AdminMainView() {
                 placeholder="Search UID, Email, IP, Address..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="bg-transparent text-xs text-white outline-none w-full placeholder-[#9CA3AF]"
+                className="w-full bg-transparent text-xs text-white placeholder-[#9CA3AF] outline-none"
               />
             </div>
 
-            {/* Right Status Controls */}
-            <div className="flex items-center gap-4">
-              {/* Online Indicator */}
-              <div className="hidden sm:flex items-center gap-2 bg-[#111111] border border-[#1F1F1F] px-3 py-1.5 rounded-full">
-                <span className="w-2 h-2 rounded-full bg-[#22C55E] animate-pulse" />
-                <span className="text-[11px] font-semibold text-gray-300">Live System Online</span>
+            {/* Right Header Actions */}
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2 px-3 py-1.5 rounded-full bg-[#16A34A]/10 border border-[#16A34A]/30 text-[11px] font-bold text-[#16A34A]">
+                <span className="w-2 h-2 rounded-full bg-[#16A34A] animate-pulse" />
+                Live System Online
               </div>
 
               {/* Notification Icon */}
@@ -689,7 +866,7 @@ export default function AdminMainView() {
                 </div>
                 <div className="hidden lg:block text-left">
                   <p className="text-xs font-bold text-white">Super Admin</p>
-                  <p className="text-[10px] text-[#9CA3AF]">admin@pokymax.com</p>
+                  <p className="text-[10px] text-amber-400 font-mono font-bold">{authorizedPcEmail || 'prc85476@gmail.com'}</p>
                 </div>
               </div>
             </div>
@@ -750,14 +927,34 @@ export default function AdminMainView() {
                   {/* Left Column (lg:col-span-2): Interactive Multi-Period User Activity Chart */}
                   <div className="lg:col-span-2 flex flex-col">
                     {(() => {
+                      const realChartData = dbStats?.activityChart;
+
+                      const activeData = (realChartData && realChartData[timeRange]) 
+                        ? realChartData[timeRange] 
+                        : null;
+
+                      // Dynamically compute max value for Y axis scaling
+                      const maxDataVal = activeData && activeData.length > 0 
+                        ? Math.max(...activeData.map(d => d.val), 500)
+                        : 2000;
+                      
+                      const maxScaled = Math.ceil(maxDataVal / 500) * 500;
+
                       const chartDatasets = {
                         '1d': {
                           title: 'User Activity Overview (Last 24 Hours)',
-                          maxVal: 500,
-                          yGrid: ['500', '400', '300', '200', '100', '0'],
-                          xLabels: ['00:00', '04:00', '08:00', '12:00', '16:00', '20:00', '24:00'],
-                          peak: '▲ 480 peak at 20:00',
-                          data: [
+                          maxVal: maxScaled,
+                          yGrid: [
+                            (maxScaled).toLocaleString(),
+                            Math.round(maxScaled * 0.8).toLocaleString(),
+                            Math.round(maxScaled * 0.6).toLocaleString(),
+                            Math.round(maxScaled * 0.4).toLocaleString(),
+                            Math.round(maxScaled * 0.2).toLocaleString(),
+                            '0'
+                          ],
+                          xLabels: (activeData || []).map(d => d.date),
+                          peak: `▲ ${Math.max(...(activeData || [{val: 480}]).map(d => d.val)).toLocaleString()} peak today`,
+                          data: activeData || [
                             { date: '00:00', val: 85, change: '+12.0%' },
                             { date: '04:00', val: 42, change: '-50.5%' },
                             { date: '08:00', val: 195, change: '+364.2%' },
@@ -769,11 +966,18 @@ export default function AdminMainView() {
                         },
                         '7d': {
                           title: 'User Activity Overview (Last 7 Days)',
-                          maxVal: 2000,
-                          yGrid: ['2.0K', '1.6K', '1.2K', '800', '400', '0'],
-                          xLabels: ['01 Aug', '02 Aug', '03 Aug', '04 Aug', '05 Aug', '06 Aug', '07 Aug'],
-                          peak: '▲ 1,910 peak on 07 Aug',
-                          data: [
+                          maxVal: maxScaled,
+                          yGrid: [
+                            (maxScaled).toLocaleString(),
+                            Math.round(maxScaled * 0.8).toLocaleString(),
+                            Math.round(maxScaled * 0.6).toLocaleString(),
+                            Math.round(maxScaled * 0.4).toLocaleString(),
+                            Math.round(maxScaled * 0.2).toLocaleString(),
+                            '0'
+                          ],
+                          xLabels: (activeData || []).map(d => d.date),
+                          peak: `▲ ${Math.max(...(activeData || [{val: 1910}]).map(d => d.val)).toLocaleString()} peak past 7 days`,
+                          data: activeData || [
                             { date: '01 Aug', val: 1620, change: '+10.2%' },
                             { date: '02 Aug', val: 1550, change: '-4.3%' },
                             { date: '03 Aug', val: 1710, change: '+10.3%' },
@@ -785,11 +989,18 @@ export default function AdminMainView() {
                         },
                         '30d': {
                           title: 'User Activity Overview (Last 30 Days)',
-                          maxVal: 2000,
-                          yGrid: ['2.0K', '1.6K', '1.2K', '800', '400', '0'],
-                          xLabels: ['09 Jul', '14 Jul', '19 Jul', '24 Jul', '29 Jul', '03 Aug', '07 Aug'],
-                          peak: '▲ 1,910 peak today',
-                          data: [
+                          maxVal: maxScaled,
+                          yGrid: [
+                            (maxScaled).toLocaleString(),
+                            Math.round(maxScaled * 0.8).toLocaleString(),
+                            Math.round(maxScaled * 0.6).toLocaleString(),
+                            Math.round(maxScaled * 0.4).toLocaleString(),
+                            Math.round(maxScaled * 0.2).toLocaleString(),
+                            '0'
+                          ],
+                          xLabels: (activeData || []).filter((_, i) => i % 5 === 0 || i === (activeData || []).length - 1).map(d => d.date),
+                          peak: `▲ ${Math.max(...(activeData || [{val: 1910}]).map(d => d.val)).toLocaleString()} peak (Live DB)`,
+                          data: activeData || [
                             { date: '09 Jul', val: 420, change: '+5.1%' },
                             { date: '10 Jul', val: 530, change: '+26.2%' },
                             { date: '11 Jul', val: 470, change: '-11.3%' },
@@ -1106,7 +1317,7 @@ export default function AdminMainView() {
                   {[
                     {
                       label: 'Total Online Users',
-                      value: dbStats ? (dbStats.onlineUsers || 14).toLocaleString() : '14',
+                      value: dbStats ? (dbStats.onlineUsers || 0).toLocaleString() : '0',
                       change: 'Online Now',
                       isUp: true,
                       icon: Activity,
@@ -1116,7 +1327,7 @@ export default function AdminMainView() {
                     },
                     {
                       label: 'Total Site Visitors',
-                      value: dbStats ? (dbStats.totalSiteVisitors || 12840).toLocaleString() : '12,840',
+                      value: dbStats ? (dbStats.totalSiteVisitors || 0).toLocaleString() : '0',
                       change: 'Live DB',
                       isUp: true,
                       icon: Eye,
@@ -1126,7 +1337,7 @@ export default function AdminMainView() {
                     },
                     {
                       label: 'Total Deposits',
-                      value: dbStats ? `$${(dbStats.totalDepositsVolume || 45280).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '$45,280.00',
+                      value: dbStats ? `$${(dbStats.totalDepositsVolume || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00',
                       change: 'Live DB',
                       isUp: true,
                       icon: ArrowDownRight,
@@ -1136,7 +1347,7 @@ export default function AdminMainView() {
                     },
                     {
                       label: 'Approved Withdrawals',
-                      value: dbStats ? `$${(dbStats.approvedWithdrawalsVolume || 18920).toLocaleString('en-US', { minimumFractionDigits: 2 })}` : '$18,920.00',
+                      value: dbStats ? `$${(dbStats.approvedWithdrawalsVolume || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00',
                       change: 'Live DB',
                       isUp: true,
                       icon: CheckCircle2,
@@ -1145,14 +1356,14 @@ export default function AdminMainView() {
                       route: '/admin/withdraw-requests'
                     },
                     {
-                      label: 'System Transactions',
-                      value: dbStats ? (dbStats.totalTransactions || 156).toLocaleString() : '156',
+                      label: 'Total Withdraw Amount',
+                      value: dbStats ? `$${(dbStats.totalWithdrawalsVolume || 0).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}` : '$0.00',
                       change: 'Live DB',
                       isUp: true,
-                      icon: MessageSquare,
-                      iconBg: 'bg-[#EC4899]',
-                      subtext: 'Database ledger records',
-                      route: '/admin/settings'
+                      icon: ArrowUpRight,
+                      iconBg: 'bg-[#E11D48]',
+                      subtext: dbStats ? `${dbStats.totalWithdrawals || 0} Total Requests` : 'All user requests',
+                      route: '/admin/withdraw-requests'
                     }
                   ].map((card, idx) => {
                     const Icon = card.icon;
@@ -1196,9 +1407,20 @@ export default function AdminMainView() {
               <div className="flex flex-col gap-6 animate-fadeIn relative">
                 <div className="flex items-center justify-between">
                   <h2 className="text-lg font-bold text-white">Pending KYC Verification Applications</h2>
-                  <span className="text-xs font-bold text-[#F59E0B] bg-[#F59E0B]/10 px-3 py-1.5 rounded-full border border-[#F59E0B]/30">
-                    {usersList.filter(u => u.kycStatus?.toLowerCase() === 'pending').length} Action Pending
-                  </span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={handleApproveAllKyc}
+                      disabled={isSubmittingKycAll}
+                      className="px-4 py-1.5 rounded-xl bg-gradient-to-r from-emerald-500 to-green-600 hover:from-emerald-600 hover:to-green-700 text-white font-extrabold text-xs shadow-[0_0_15px_rgba(34,197,94,0.3)] transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+                    >
+                      <CheckCircle2 className="w-4 h-4" />
+                      <span>{isSubmittingKycAll ? "Processing..." : "Approve All"}</span>
+                    </button>
+
+                    <span className="text-xs font-bold text-[#F59E0B] bg-[#F59E0B]/10 px-3 py-1.5 rounded-full border border-[#F59E0B]/30">
+                      {usersList.filter(u => u.kycStatus?.toLowerCase() === 'pending' || u.kycStatus?.toLowerCase() === 'unverified').length} Action Pending
+                    </span>
+                  </div>
                 </div>
 
                 <div className="bg-[#111111] border border-[#1F1F1F] rounded-2xl overflow-hidden shadow-xl">
@@ -1495,26 +1717,24 @@ export default function AdminMainView() {
                                 {req.status === 'Pending' ? (
                                   <>
                                     <button
-                                      onClick={() => {
-                                        setWithdrawRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'Approved' } : r));
-                                        showToast(`Approved Withdrawal ${req.id}`);
-                                      }}
+                                      onClick={() => handleWithdrawAction(req.withdrawalId || req.id, 'approve')}
                                       className="px-2.5 py-1.5 rounded-lg bg-[#22C55E] hover:bg-green-600 text-white font-bold text-[11px] cursor-pointer shadow-md transition-colors"
                                     >
                                       Approve
                                     </button>
                                     <button
-                                      onClick={() => {
-                                        setWithdrawRequests(prev => prev.map(r => r.id === req.id ? { ...r, status: 'Rejected' } : r));
-                                        showToast(`Rejected Withdrawal ${req.id}`);
-                                      }}
+                                      onClick={() => handleWithdrawAction(req.withdrawalId || req.id, 'reject')}
                                       className="px-2.5 py-1.5 rounded-lg bg-[#EF4444] hover:bg-red-600 text-white font-bold text-[11px] cursor-pointer shadow-md transition-colors"
                                     >
                                       Reject
                                     </button>
                                   </>
                                 ) : (
-                                  <span className="text-[#22C55E] font-bold text-[11px] bg-[#22C55E]/10 px-2.5 py-1 rounded-lg border border-[#22C55E]/30">Processed</span>
+                                  <span className={`text-[11px] font-bold px-2.5 py-1 rounded-lg border ${
+                                    req.status === 'Approved' ? 'bg-[#22C55E]/15 text-[#22C55E] border-[#22C55E]/40' : 'bg-[#EF4444]/15 text-[#EF4444] border-[#EF4444]/40'
+                                  }`}>
+                                    {req.status}
+                                  </span>
                                 )}
                               </div>
                             </td>

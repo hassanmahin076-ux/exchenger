@@ -204,9 +204,9 @@ export default function ProfilePage() {
       extra: <span className="w-2 h-2 rounded-full bg-[#3b82f6] inline-block ml-1" title="New update" />, 
       onClick: () => router.push('/satting') 
     },
-    { id: 'support', label: 'Customer Support', extra: null, onClick: () => router.push('/satting') },
-    { id: 'help', label: 'Help Center', extra: null, onClick: () => router.push('/satting') },
-    { id: 'about', label: 'About Pokymax', extra: null, onClick: () => router.push('/satting') },
+    { id: 'support', label: 'Customer Support', extra: null, onClick: () => router.push('/support') },
+    { id: 'help', label: 'Help Center', extra: null, onClick: () => router.push('/support') },
+    { id: 'about', label: 'About Pokymax', extra: null, onClick: () => router.push('/about') },
     { 
       id: 'server', 
       label: 'Select Server', 

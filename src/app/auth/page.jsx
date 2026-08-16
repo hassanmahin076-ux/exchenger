@@ -52,6 +52,7 @@ function AuthContent() {
     setIsGoogleLoading(true);
     setErrorMsg("");
     try {
+      const codeToUse = invitationCode || (typeof window !== 'undefined' ? localStorage.getItem('pendingInvCode') : '');
       await triggerGoogleLogin(
         (data) => {
           setIsGoogleLoading(false);
@@ -74,7 +75,8 @@ function AuthContent() {
         (errorText) => {
           setIsGoogleLoading(false);
           setErrorMsg(errorText || "Google authentication failed.");
-        }
+        },
+        codeToUse
       );
     } catch (err) {
       setIsGoogleLoading(false);

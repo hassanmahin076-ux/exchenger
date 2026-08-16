@@ -8,14 +8,82 @@ export async function POST(request) {
     const body = await request.json();
     const { kycId, userUid, action } = body;
 
-    if (!action || (!kycId && !userUid)) {
+    if (!action) {
       return NextResponse.json(
-        { success: false, error: 'KYC ID or User UID and Action are required' },
+        { success: false, error: 'Action is required' },
         { status: 400 }
       );
     }
 
     const normalizedAction = action.toLowerCase();
+
+    // ---------------- BULK APPROVE ALL PENDING KYC ----------------
+    if (normalizedAction === 'approve_all' || normalizedAction === 'approveall') {
+      const pendingUsersRes = await query(
+        `SELECT u.id, u.uid FROM users u
+         WHERE LOWER(u.kyc_status) = 'pending' OR LOWER(u.kyc_status) = 'unverified'
+            OR u.id IN (SELECT user_id FROM kyc_verifications WHERE LOWER(status) = 'pending');`
+      );
+
+      let approvedCount = 0;
+      for (const row of pendingUsersRes.rows) {
+        const uId = row.id;
+        const uUid = row.uid;
+
+        // Update kyc_verifications & users
+        await query(`UPDATE kyc_verifications SET status = 'verified', reviewed_at = CURRENT_TIMESTAMP WHERE user_id = $1;`, [uId]);
+        await query(`UPDATE users SET kyc_status = 'verified', updated_at = CURRENT_TIMESTAMP WHERE id = $1;`, [uId]);
+
+        // Credit $2.10 USDT reward
+        try {
+          const balCheck = await query(`SELECT id FROM balances WHERE user_id = $1;`, [uId]);
+          if (balCheck.rows.length > 0) {
+            await query(
+              `UPDATE balances 
+               SET total_usdt = total_usdt + 2.10,
+                   available_usdt = available_usdt + 2.10,
+                   spot_usdt = spot_usdt + 2.10,
+                   updated_at = CURRENT_TIMESTAMP
+               WHERE user_id = $1;`,
+              [uId]
+            );
+          } else {
+            await query(
+              `INSERT INTO balances (user_id, total_usdt, available_usdt, spot_usdt, futures_usdt, staked_usdt)
+               VALUES ($1, 2.10, 2.10, 2.10, 0.00, 0.00);`,
+              [uId]
+            );
+          }
+        } catch (bErr) {
+          console.warn('Balance credit error:', bErr.message);
+        }
+
+        // Send notification
+        try {
+          await query(
+            `INSERT INTO user_notifications (user_id, title, message, type, amount, is_read)
+             VALUES ($1, 'KYC Approved', 'Your KYC success, 2.1$ receive', 'reward', 2.10, false);`,
+            [uId]
+          );
+        } catch (nErr) {}
+
+        approvedCount++;
+      }
+
+      return NextResponse.json({
+        success: true,
+        message: `Successfully approved all ${approvedCount} pending KYC applications!`,
+        approvedCount
+      });
+    }
+
+    if (!kycId && !userUid) {
+      return NextResponse.json(
+        { success: false, error: 'KYC ID or User UID required' },
+        { status: 400 }
+      );
+    }
+
     const newStatus = (normalizedAction === 'approve' || normalizedAction === 'verified') ? 'verified' : 'rejected';
     const numericKycId = (kycId && !isNaN(parseInt(kycId, 10))) ? parseInt(kycId, 10) : -1;
 
@@ -98,6 +166,82 @@ export async function POST(request) {
         );
       } catch (notiErr) {
         console.warn('Could not insert KYC notification:', notiErr.message);
+      }
+
+      // Check if user was referred by someone and award referral bonus
+      try {
+        const refUserRes = await query(
+          `SELECT referred_by_user_id, referral_reward_claimed FROM users WHERE id = $1;`,
+          [targetUserId]
+        );
+        if (refUserRes.rows.length > 0) {
+          const { referred_by_user_id, referral_reward_claimed } = refUserRes.rows[0];
+
+          if (referred_by_user_id && !referral_reward_claimed) {
+            // Count how many verified referral rewards have been claimed by this referrer so far
+            const claimedCountRes = await query(
+              `SELECT COUNT(*)::int AS count 
+               FROM users 
+               WHERE referred_by_user_id = $1 
+                 AND kyc_status = 'verified' 
+                 AND referral_reward_claimed = TRUE;`,
+              [referred_by_user_id]
+            );
+
+            const alreadyClaimedCount = parseInt(claimedCountRes.rows[0]?.count || '0', 10);
+
+            // Determine if balance should be credited (+0.50 USDT)
+            // - First 10 referrals: Every 1 referral gives +0.50 USDT
+            // - 11+ referrals: Every 2 referrals give +0.50 USDT (odd index = wait for pair, even index = +0.50)
+            let shouldCreditBalance = false;
+
+            if (alreadyClaimedCount < 10) {
+              shouldCreditBalance = true;
+            } else {
+              const afterTenIndex = alreadyClaimedCount - 10;
+              shouldCreditBalance = afterTenIndex % 2 === 1;
+            }
+
+            if (shouldCreditBalance) {
+              // 1. Credit +0.50 USDT to referrer
+              await query(
+                `UPDATE balances 
+                 SET total_usdt = total_usdt + 0.50,
+                     available_usdt = available_usdt + 0.50,
+                     spot_usdt = spot_usdt + 0.50,
+                     updated_at = CURRENT_TIMESTAMP
+                 WHERE user_id = $1;`,
+                [referred_by_user_id]
+              );
+            }
+
+            // 2. Mark reward as claimed for this referred user (so UI always displays "+0.5$ added")
+            await query(
+              `UPDATE users SET referral_reward_claimed = TRUE WHERE id = $1;`,
+              [targetUserId]
+            );
+
+            // 3. Record history in database
+            await query(
+              `INSERT INTO user_history (user_id, user_email, user_uid, type, title, amount, status)
+               VALUES ($1, (SELECT email FROM users WHERE id = $1), (SELECT uid FROM users WHERE id = $1), 'Referral', 'you have recive 0.5$', '+0.50 USDT', 'Completed');`,
+              [referred_by_user_id]
+            );
+
+            // 4. Send notification to referrer
+            const notiMsg = shouldCreditBalance
+              ? 'Your referral completed KYC! +0.50 USDT credited.'
+              : 'Your referral completed KYC! Complete 1 more referral to unlock +0.50 USDT bonus.';
+
+            await query(
+              `INSERT INTO user_notifications (user_id, title, message, type, amount, is_read)
+               VALUES ($1, 'Referral Reward Received', $2, 'reward', $3, false);`,
+              [referred_by_user_id, notiMsg, shouldCreditBalance ? 0.50 : 0.00]
+            );
+          }
+        }
+      } catch (refBonusErr) {
+        console.warn('Could not credit referral bonus:', refBonusErr.message);
       }
     }
 

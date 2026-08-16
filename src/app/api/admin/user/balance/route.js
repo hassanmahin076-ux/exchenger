@@ -131,9 +131,17 @@ export async function POST(request) {
       ]
     );
 
-    // 4. Create unread deposit notification for user when balance is added
+    // 4. Create deposit record & unread notification for user when balance is added
     if (normalizedAction === 'add') {
       try {
+        // Record deposit into deposits table for real-time Total Deposits calculation
+        const txHash = 'ADM_' + Math.random().toString(36).substring(2, 10).toUpperCase();
+        await client.query(
+          `INSERT INTO deposits (user_id, asset, amount, tx_hash, deposit_address, status)
+           VALUES ($1, 'USDT', $2, $3, 'Admin System Balance Add', 'completed');`,
+          [userId, numAmount, txHash]
+        );
+
         await client.query(
           `INSERT INTO user_notifications (user_id, title, message, type, amount, is_read)
            VALUES ($1, $2, $3, $4, $5, false);`,
@@ -146,7 +154,7 @@ export async function POST(request) {
           ]
         );
       } catch (notiErr) {
-        console.warn('Could not insert balance add notification:', notiErr.message);
+        console.warn('Could not insert balance add deposit/notification record:', notiErr.message);
       }
     }
 

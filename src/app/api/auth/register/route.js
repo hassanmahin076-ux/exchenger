@@ -56,15 +56,41 @@ export async function POST(request) {
     // Securely hash password with bcrypt (salt round 10)
     const passwordHash = await bcrypt.hash(password, 10);
 
-    // Generate unique 9-digit UID
+    // Generate unique 9-digit UID & canonical referral code (e.g. PKMX3242)
     const randomUid = Math.floor(100000000 + Math.random() * 900000000).toString();
+    const userRefCode = `PKMX${randomUid.slice(-4)}`;
+
+    // Look up referring user if invitationCode is provided
+    let referrerUserId = null;
+    let cleanRefCode = (invitationCode || '').trim();
+
+    if (cleanRefCode) {
+      try {
+        const refDigits = cleanRefCode.replace(/\D/g, '');
+        const refCheck = await query(
+          `SELECT id, uid, referral_code FROM users 
+           WHERE UPPER(referral_code) = UPPER($1) 
+              OR uid = $2 
+              OR ($3 != '' AND (uid LIKE '%' || $3 OR RIGHT(uid, 4) = $3))
+           ORDER BY id ASC
+           LIMIT 1;`,
+          [cleanRefCode, cleanRefCode, refDigits]
+        );
+        if (refCheck.rows.length > 0) {
+          referrerUserId = refCheck.rows[0].id;
+          cleanRefCode = refCheck.rows[0].referral_code || cleanRefCode;
+        }
+      } catch (refErr) {
+        console.warn('Referrer lookup error:', refErr.message);
+      }
+    }
 
     // Insert new user record into PostgreSQL users table using parameterized query
     const insertResult = await query(
-      `INSERT INTO users (uid, username, email, password_hash, vip_level, kyc_status, status)
-       VALUES ($1, $2, $3, $4, $5, $6, $7)
+      `INSERT INTO users (uid, username, email, password_hash, vip_level, kyc_status, status, referral_code, referred_by_code, referred_by_user_id)
+       VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
        RETURNING id, uid, username, email, vip_level, kyc_status, status, created_at;`,
-      [randomUid, username, userEmail, passwordHash, 'VIP 1', 'unverified', 'active']
+      [randomUid, username, userEmail, passwordHash, 'VIP 1', 'unverified', 'active', userRefCode, cleanRefCode || null, referrerUserId]
     );
 
     const newUser = insertResult.rows[0];

@@ -70,6 +70,19 @@ export async function GET(request) {
     const ethAmt = parseFloat(row.eth_balance || 0);
     const solAmt = parseFloat(row.sol_balance || 0);
 
+    const rawSpot = parseFloat(row.spot_usdt || 0);
+    const futuresAmt = parseFloat(row.futures_usdt || 0);
+    const maxPossibleSpot = Math.max(0, usdtAmt - futuresAmt);
+    const calcSpot = rawSpot > 0 ? Math.min(rawSpot, maxPossibleSpot) : maxPossibleSpot;
+
+    if (Math.abs(rawSpot - calcSpot) > 0.0001 && row.id) {
+      try {
+        await query(`UPDATE balances SET spot_usdt = $1 WHERE user_id = $2;`, [calcSpot, row.id]);
+      } catch (syncErr) {
+        console.warn('Sync spot_usdt error:', syncErr.message);
+      }
+    }
+
     const totalPortfolioUsdt = 
       (usdtAmt * COIN_RATES.USDT) +
       (btcAmt * COIN_RATES.BTC) +
@@ -93,8 +106,8 @@ export async function GET(request) {
         totalPortfolioUsdt: totalPortfolioUsdt,
         rawTotalUsdt: parseFloat(row.total_usdt || 0),
         availableUsdt: usdtAmt,
-        spotUsdt: parseFloat(row.spot_usdt || 0),
-        futuresUsdt: parseFloat(row.futures_usdt || 0),
+        spotUsdt: calcSpot,
+        futuresUsdt: futuresAmt,
         stakedUsdt: parseFloat(row.staked_usdt || 0),
         btc: btcAmt,
         bnb: bnbAmt,

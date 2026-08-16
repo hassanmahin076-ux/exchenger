@@ -96,27 +96,30 @@ export async function POST(request) {
 
     // 4. Lock balance row & update user USDT balance
     const balRes = await client.query(
-      `SELECT available_usdt, total_usdt FROM balances WHERE user_id = $1 FOR UPDATE;`,
+      `SELECT available_usdt, total_usdt, spot_usdt FROM balances WHERE user_id = $1 FOR UPDATE;`,
       [userId]
     );
 
     let currentAvail = 0;
     let currentTotal = 0;
+    let currentSpot = 0;
 
     if (balRes.rows.length === 0) {
       await client.query(
-        `INSERT INTO balances (user_id, available_usdt, total_usdt) VALUES ($1, $2, $2);`,
+        `INSERT INTO balances (user_id, available_usdt, total_usdt, spot_usdt, futures_usdt, staked_usdt) VALUES ($1, $2, $2, $2, 0.00, 0.00);`,
         [userId, rewardAmount]
       );
     } else {
       currentAvail = parseFloat(balRes.rows[0].available_usdt || 0);
       currentTotal = parseFloat(balRes.rows[0].total_usdt || 0);
+      currentSpot = parseFloat(balRes.rows[0].spot_usdt || 0);
       const newAvail = currentAvail + rewardAmount;
       const newTotal = currentTotal + rewardAmount;
+      const newSpot = currentSpot + rewardAmount;
 
       await client.query(
-        `UPDATE balances SET available_usdt = $1, total_usdt = $2, updated_at = CURRENT_TIMESTAMP WHERE user_id = $3;`,
-        [newAvail, newTotal, userId]
+        `UPDATE balances SET available_usdt = $1, total_usdt = $2, spot_usdt = $3, updated_at = CURRENT_TIMESTAMP WHERE user_id = $4;`,
+        [newAvail, newTotal, newSpot, userId]
       );
     }
 

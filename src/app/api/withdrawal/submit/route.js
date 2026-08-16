@@ -99,6 +99,13 @@ export async function POST(request) {
       [userId, assetSymbol, numAmount, currentTotal, newTotal, `Withdrawal request ID #${withdrawal.id}`]
     );
 
+    // 7. Record in user_history table
+    await client.query(
+      `INSERT INTO user_history (user_id, user_email, user_uid, type, title, amount, status)
+       VALUES ($1, $2, $3, 'Withdraw', $4, $5, 'Pending');`,
+      [userId, userRow.email, userRow.uid, `Withdraw ${assetSymbol}`, `-${numAmount.toFixed(2)} ${assetSymbol}`]
+    );
+
     await client.query('COMMIT');
     client.release();
 

@@ -24,7 +24,7 @@ export async function POST(request) {
   let body = {};
   try {
     body = await request.json();
-    const { credential, accessToken, googleUser } = body;
+    const { credential, accessToken, googleUser, invitationCode } = body;
 
     let email = null;
     let googleId = null;
@@ -109,12 +109,37 @@ export async function POST(request) {
       // User does NOT exist -> Create new Google user
       const randomUid = Math.floor(100000000 + Math.random() * 900000000).toString();
       const username = name.replace(/\s+/g, '_').toLowerCase();
+      const userRefCode = `PKMX${randomUid.slice(-4)}`;
+
+      // Look up referrer if invitationCode is provided
+      let referrerUserId = null;
+      let cleanRefCode = (invitationCode || '').trim();
+      if (cleanRefCode) {
+        try {
+          const refDigits = cleanRefCode.replace(/\D/g, '');
+          const refCheck = await query(
+            `SELECT id, uid, referral_code FROM users 
+             WHERE UPPER(referral_code) = UPPER($1) 
+                OR uid = $2 
+                OR ($3 != '' AND (uid LIKE '%' || $3 OR RIGHT(uid, 4) = $3))
+             ORDER BY id ASC
+             LIMIT 1;`,
+            [cleanRefCode, cleanRefCode, refDigits]
+          );
+          if (refCheck.rows.length > 0) {
+            referrerUserId = refCheck.rows[0].id;
+            cleanRefCode = refCheck.rows[0].referral_code || cleanRefCode;
+          }
+        } catch (refErr) {
+          console.warn('Google auth referrer lookup error:', refErr.message);
+        }
+      }
 
       const insertResult = await query(
-        `INSERT INTO users (uid, username, email, google_id, avatar_url, auth_provider, vip_level, kyc_status, status)
-         VALUES ($1, $2, $3, $4, $5, 'google', 'VIP 1', 'unverified', 'active')
+        `INSERT INTO users (uid, username, email, google_id, avatar_url, auth_provider, vip_level, kyc_status, status, referral_code, referred_by_code, referred_by_user_id)
+         VALUES ($1, $2, $3, $4, $5, 'google', 'VIP 1', 'unverified', 'active', $6, $7, $8)
          RETURNING id, uid, username, email, google_id, avatar_url, vip_level, kyc_status, status;`,
-        [randomUid, username, email, googleId, avatarUrl]
+        [randomUid, username, email, googleId, avatarUrl, userRefCode, cleanRefCode || null, referrerUserId]
       );
 
       user = insertResult.rows[0];

@@ -35,6 +35,7 @@ export async function GET(request) {
         COALESCE(b.spot_usdt, 0.00) AS spot_balance,
         COALESCE(b.futures_usdt, 0.00) AS futures_balance,
         COALESCE(b.staked_usdt, 0.00) AS staked_balance,
+        COALESCE(ref.ref_count, 0) AS referral_count,
         k.kyc_id,
         k.full_name,
         k.id_number,
@@ -45,6 +46,20 @@ export async function GET(request) {
         k.id_back_path
       FROM users u
       LEFT JOIN balances b ON b.user_id = u.id
+      LEFT JOIN (
+        SELECT 
+          COALESCE(r.referred_by_user_id, ref_user.id) AS referrer_id,
+          COUNT(*) AS ref_count
+        FROM users r
+        LEFT JOIN users ref_user ON 
+          (r.referred_by_code IS NOT NULL AND (
+            UPPER(r.referred_by_code) = UPPER(ref_user.referral_code)
+            OR UPPER(r.referred_by_code) = UPPER(ref_user.uid)
+            OR RIGHT(r.referred_by_code, 4) = RIGHT(ref_user.uid, 4)
+          ) AND r.id != ref_user.id)
+        WHERE r.referred_by_user_id IS NOT NULL OR r.referred_by_code IS NOT NULL
+        GROUP BY COALESCE(r.referred_by_user_id, ref_user.id)
+      ) ref ON ref.referrer_id = u.id
       LEFT JOIN LATERAL (
         SELECT id AS kyc_id, full_name, id_number, document_type, country, submitted_at, id_front_path, id_back_path
         FROM kyc_verifications
@@ -65,7 +80,7 @@ export async function GET(request) {
       )`;
     }
 
-    sql += ` ORDER BY u.created_at DESC;`;
+    sql += ` ORDER BY referral_count DESC, u.created_at DESC;`;
 
     const result = await query(sql, queryParams);
 
@@ -96,7 +111,7 @@ export async function GET(request) {
         balance: parseFloat(row.balance || 0),
         availableBalance: parseFloat(row.available_balance || 0),
         spotBalance: parseFloat(row.spot_balance || 0),
-        referralCount: 0,
+        referralCount: parseInt(row.referral_count || 0, 10),
         kycStatus: kycStatusFormatted,
         status: accountStatusFormatted,
         country: row.country || 'Global',

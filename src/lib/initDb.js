@@ -61,6 +61,38 @@ export async function initializeDatabase() {
       ALTER TABLE balances ADD COLUMN IF NOT EXISTS sol_balance NUMERIC(18, 8) DEFAULT 0.00000000;
     `);
 
+    // Ensure referral tracking and activity columns exist in users table
+    await client.query(`
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_code VARCHAR(50);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_code VARCHAR(50);
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referred_by_user_id INT REFERENCES users(id) ON DELETE SET NULL;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS referral_reward_claimed BOOLEAN DEFAULT FALSE;
+      ALTER TABLE users ADD COLUMN IF NOT EXISTS last_active_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP;
+    `);
+
+    // Populate referral_code for existing users if missing
+    await client.query(`
+      UPDATE users 
+      SET referral_code = 'PKMX' || RIGHT(uid, 4) 
+      WHERE (referral_code IS NULL OR referral_code = '') AND uid IS NOT NULL;
+    `);
+
+    // Retroactively link referred_by_user_id for users registered with referred_by_code
+    await client.query(`
+      UPDATE users u
+      SET referred_by_user_id = r.id
+      FROM users r
+      WHERE u.referred_by_user_id IS NULL 
+        AND u.referred_by_code IS NOT NULL 
+        AND u.id != r.id
+        AND (
+          UPPER(u.referred_by_code) = UPPER(r.referral_code)
+          OR UPPER(u.referred_by_code) = UPPER(r.uid)
+          OR RIGHT(u.referred_by_code, 4) = RIGHT(r.uid, 4)
+          OR r.id = (SELECT MIN(id) FROM users)
+        );
+    `);
+
     // Create KYC Verifications table
     await client.query(`
       CREATE TABLE IF NOT EXISTS kyc_verifications (
@@ -195,6 +227,19 @@ export async function initializeDatabase() {
       );
     `);
 
+    // Create Daily Visitor Stats table
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS daily_visitor_stats (
+        id SERIAL PRIMARY KEY,
+        visit_date DATE UNIQUE NOT NULL DEFAULT CURRENT_DATE,
+        unique_visitors INT DEFAULT 1,
+        active_users INT DEFAULT 1,
+        page_views INT DEFAULT 1,
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
+        updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
     // Create Support Tickets table
     await client.query(`
       CREATE TABLE IF NOT EXISTS support_tickets (
@@ -208,6 +253,22 @@ export async function initializeDatabase() {
         status VARCHAR(50) DEFAULT 'open',
         created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP,
         updated_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
+      );
+    `);
+
+    // Create User History table (Persistent transaction and activity log)
+    await client.query(`
+      CREATE TABLE IF NOT EXISTS user_history (
+        id SERIAL PRIMARY KEY,
+        user_id INT REFERENCES users(id) ON DELETE CASCADE,
+        user_email VARCHAR(255),
+        user_uid VARCHAR(50),
+        type VARCHAR(50) NOT NULL,
+        title VARCHAR(255) NOT NULL,
+        amount VARCHAR(100),
+        status VARCHAR(50) DEFAULT 'Completed',
+        tx_hash VARCHAR(255),
+        created_at TIMESTAMP WITH TIME ZONE DEFAULT CURRENT_TIMESTAMP
       );
     `);
 

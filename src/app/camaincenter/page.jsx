@@ -83,6 +83,7 @@ export default function CampaignCenterPage() {
 
   // Modal, Apply & Claim States
   const [isDetailsOpen, setIsDetailsOpen] = useState(false);
+  const [showReqModal, setShowReqModal] = useState(false);
   const [isApplying, setIsApplying] = useState(false);
   const [isApplied, setIsApplied] = useState(false);
   const [isClaimed, setIsClaimed] = useState(false);
@@ -186,32 +187,20 @@ export default function CampaignCenterPage() {
   };
 
   const handleClaim = () => {
-    const hasApplied = isApplied || (typeof window !== 'undefined' && localStorage.getItem('taskCouponApplied') === 'true');
-    
-    if (!hasApplied) {
-      showToast("⚠️ Please click 'Apply' and complete deposit first!", true);
-      return;
-    }
-
-    if (isClaimed) {
-      showToast("Coupon already claimed to your spot withdraw balance!");
-      return;
-    }
-
-    setIsClaimed(true);
-    showToast("🎉 Success! $3 Instant Spot Withdraw Balance Claimed!");
+    setShowReqModal(true);
+    showToast("⚠️ Deposit 10 USDT & Trade 10$ BTC/USDT required!", true);
   };
 
   const taskData = {
-    title: "Fast 10$ Deposit 3$ Coupon Apply",
-    desc: "Get 3$ instant spot withdraw balance",
-    amount: "3",
+    title: "Deposit 10 USDT & Fast 10$ Spot Trade",
+    desc: "Get 4$ instant spot withdraw balance",
+    amount: "4",
     unit: "USDT",
     steps: [
-      { num: 1, text: "Click Apply to open your USDT Deposit Address." },
-      { num: 2, text: "Deposit minimum 10$ (Must select USDT BEP20 Network)." },
-      { num: 3, text: "After deposit completes on-chain, click Claim." },
-      { num: 4, text: "Receive 3$ instant spot withdraw balance immediately!" }
+      { num: 1, text: "Deposit minimum 10$ USDT (Select USDT BEP20 or TRC20 Network)." },
+      { num: 2, text: "Complete your first 10$ Spot trade (buy or sell any crypto)." },
+      { num: 3, text: "After completing deposit & spot trade, click Claim." },
+      { num: 4, text: "Receive 4$ instant spot withdraw balance immediately!" }
     ]
   };
 
@@ -436,19 +425,21 @@ export default function CampaignCenterPage() {
 
           </div>
 
-          {/* Task Card 2: Fast 10$ Deposit 3$ Coupon Apply */}
+
+
+          {/* Task Card 2: Deposit 10 USDT & Fast 10$ Spot Trade */}
           <div className="relative bg-[#16171b] border border-[#24262d] rounded-[24px] p-5 flex flex-col gap-4 shadow-xl overflow-hidden mt-2">
             
-            {/* Top Right Timer Badge (3 Days) */}
+            {/* Top Right Timer Badge (7 Days) */}
             <div className="absolute top-0 right-0 bg-[#212329] text-gray-200 text-[11px] font-mono font-bold px-3 py-1.5 rounded-bl-2xl rounded-tr-[22px] border-l border-b border-[#2d3039] tracking-wider">
-              {timer1.days}D : {formatTwoDigits(timer1.hours)} : {formatTwoDigits(timer1.minutes)} : {formatTwoDigits(timer1.seconds)}
+              {timer2.days}D : {formatTwoDigits(timer2.hours)} : {formatTwoDigits(timer2.minutes)} : {formatTwoDigits(timer2.seconds)}
             </div>
 
             {/* Content Row: Left Ticket Badge + Title/Description + Right Details Option */}
             <div className="flex items-start justify-between gap-2.5 pt-1">
               
               <div className="flex items-start gap-3">
-                {/* Coupon Ticket Badge matching Image 2 */}
+                {/* Coupon Ticket Badge (5 USDT) */}
                 <TicketCouponBadge amount={taskData.amount} unit={taskData.unit} />
 
                 {/* Title & Description */}
@@ -473,25 +464,15 @@ export default function CampaignCenterPage() {
 
             </div>
 
-            {/* Seamless Joined Split Pill Button Container */}
+            {/* Joined Split Button: Left half = Trade, Right half = Claim */}
             <div className="w-full rounded-full overflow-hidden flex border border-[#30333d] shadow-lg mt-1 select-none">
               
-              {/* Left Half: Apply (White Background) */}
+              {/* Left Half: Trade (White Background) */}
               <button
-                onClick={handleApply}
-                disabled={isApplying}
-                className="flex-1 bg-white hover:bg-gray-100 text-black font-black text-base py-3.5 flex items-center justify-center gap-2 transition-all active:opacity-90 cursor-pointer disabled:opacity-80"
+                onClick={() => router.push('/trade')}
+                className="flex-1 bg-white hover:bg-gray-100 text-black font-black text-base py-3.5 flex items-center justify-center gap-2 transition-all active:opacity-90 cursor-pointer"
               >
-                {isApplying ? (
-                  <>
-                    <Loader2 className="w-5 h-5 animate-spin text-black" />
-                    <span>Applying...</span>
-                  </>
-                ) : isApplied ? (
-                  "Deposit 10$"
-                ) : (
-                  "Apply"
-                )}
+                Trade
               </button>
 
               {/* Right Half: Claim (Lime Green Background) */}
@@ -507,42 +488,6 @@ export default function CampaignCenterPage() {
               </button>
 
             </div>
-
-          </div>
-
-          {/* Task Card 3: First Spot Trade */}
-          <div className="relative bg-[#16171b] border border-[#24262d] rounded-[24px] p-5 flex flex-col gap-4 shadow-xl overflow-hidden mt-2">
-            
-            {/* Top Right Timer Badge (7 Days) */}
-            <div className="absolute top-0 right-0 bg-[#212329] text-gray-200 text-[11px] font-mono font-bold px-3 py-1.5 rounded-bl-2xl rounded-tr-[22px] border-l border-b border-[#2d3039] tracking-wider">
-              {timer2.days}D : {formatTwoDigits(timer2.hours)} : {formatTwoDigits(timer2.minutes)} : {formatTwoDigits(timer2.seconds)}
-            </div>
-
-            {/* Content Row: Left Ticket Badge + Title/Description */}
-            <div className="flex items-start justify-between gap-3 pt-1">
-              <div className="flex items-start gap-3.5">
-                {/* Coupon Ticket Badge matching Image 2 */}
-                <TicketCouponBadge amount="2" unit="USDT" />
-
-                {/* Title & Description */}
-                <div className="flex flex-col justify-center max-w-[180px] sm:max-w-[200px]">
-                  <h3 className="text-white font-bold text-base sm:text-[17px] tracking-tight leading-snug">
-                    First Spot Trade
-                  </h3>
-                  <p className="text-gray-400 text-xs sm:text-[13px] font-normal mt-1 leading-snug">
-                    First spot buy amount ≥ 20 USDT
-                  </p>
-                </div>
-              </div>
-            </div>
-
-            {/* Full-width White Trade Button matching screenshot */}
-            <button
-              onClick={() => router.push('/trade')}
-              className="w-full bg-white hover:bg-gray-100 text-black font-black text-base py-3.5 rounded-full transition-all active:opacity-90 cursor-pointer shadow-lg mt-1 select-none"
-            >
-              Trade
-            </button>
 
           </div>
 
@@ -621,42 +566,117 @@ export default function CampaignCenterPage() {
               <div className="bg-[#241d13] border border-[#4d3618] p-3 rounded-xl flex items-start gap-2.5 text-xs text-[#f5a623] mt-1">
                 <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
                 <p className="leading-normal">
-                  <strong>Important:</strong> Deposit amount must be at least 10 USDT using <strong>USDT BEP20 (BSC) Network</strong> only.
+                  <strong>Important:</strong> Must deposit minimum 10$ USDT and trade 10$ Spot to claim $5 spot reward.
                 </p>
               </div>
             </div>
 
-            {/* Modal Bottom CTA Button */}
-            <button
-              onClick={() => {
-                if (isApplied) {
+            {/* Modal Bottom CTA Buttons */}
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={() => {
                   setIsDetailsOpen(false);
                   router.push('/assets?action=deposit');
-                } else {
+                }}
+                className="flex-1 bg-white hover:bg-gray-100 text-black font-black text-xs sm:text-sm py-3.5 rounded-full transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>Deposit USDT</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
                   setIsDetailsOpen(false);
-                  handleApply();
-                }
-              }}
-              disabled={isApplying}
-              className="w-full bg-[#85e640] hover:bg-[#76d335] text-[#0c2e02] font-black text-sm py-3.5 rounded-full transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-2 cursor-pointer mt-1 disabled:opacity-80"
-            >
-              {isApplying ? (
-                <>
-                  <Loader2 className="w-4 h-4 animate-spin text-[#0c2e02]" />
-                  <span>Applying...</span>
-                </>
-              ) : isApplied ? (
-                <>
-                  <span>Deposit 10$</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              ) : (
-                <>
-                  <span>Apply & Go to Deposit</span>
-                  <ArrowRight className="w-4 h-4" />
-                </>
-              )}
-            </button>
+                  router.push('/trade');
+                }}
+                className="flex-1 bg-[#85e640] hover:bg-[#76d335] text-[#0c2e02] font-black text-xs sm:text-sm py-3.5 rounded-full transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>Go to Trade</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
+
+          </div>
+        </div>
+      )}
+
+      {/* REQUIREMENT POPUP MODAL ON CLAIM CLICK */}
+      {showReqModal && (
+        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-sm flex items-end sm:items-center justify-center p-0 sm:p-4 animate-in fade-in duration-200">
+          
+          {/* Backdrop */}
+          <div 
+            className="absolute inset-0" 
+            onClick={() => setShowReqModal(false)} 
+          />
+
+          {/* Modal Card */}
+          <div className="relative z-10 w-full max-w-[430px] bg-[#14161b] border-t sm:border border-[#262933] rounded-t-3xl sm:rounded-3xl p-5 flex flex-col gap-4 text-white shadow-2xl animate-in slide-in-from-bottom duration-300 select-none">
+            
+            {/* Top Handle Bar for mobile */}
+            <div className="w-10 h-1 bg-[#2c2f3a] rounded-full mx-auto sm:hidden -mt-1"></div>
+
+            {/* Modal Header */}
+            <div className="flex items-center justify-between pb-3 border-b border-[#222530]">
+              <div className="flex items-center gap-2">
+                <Info className="w-5 h-5 text-[#f5a623]" />
+                <h3 className="font-extrabold text-base text-white">Deposit & Trade Required</h3>
+              </div>
+
+              <button 
+                onClick={() => setShowReqModal(false)}
+                className="p-1 text-gray-400 hover:text-white rounded-lg bg-[#1f222b] transition-colors cursor-pointer"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+
+            {/* Requirement Notice Box */}
+            <div className="bg-[#241d13] border border-[#4d3618] p-4 rounded-2xl flex flex-col gap-2">
+              <div className="flex items-center gap-2 text-[#f5a623] font-bold text-sm">
+                <span>⚠️ Requirement Not Met</span>
+              </div>
+              <p className="text-xs text-gray-200 leading-relaxed">
+                To claim your <strong>$4 Instant Spot Reward</strong>, you must first <strong>deposit minimum 10 USDT</strong> and complete <strong>$10 BTC/USDT Spot trade</strong>.
+              </p>
+            </div>
+
+            {/* Checklist */}
+            <div className="flex flex-col gap-2 bg-[#181b22] p-3.5 rounded-2xl border border-[#232733] text-xs">
+              <div className="flex items-center justify-between py-1 border-b border-[#232733]">
+                <span className="text-gray-300">1. Deposit Minimum 10 USDT</span>
+                <span className="text-[#ff6666] font-bold">Pending ✗</span>
+              </div>
+              <div className="flex items-center justify-between py-1">
+                <span className="text-gray-300">2. Trade 10$ BTC/USDT Spot</span>
+                <span className="text-[#ff6666] font-bold">Pending ✗</span>
+              </div>
+            </div>
+
+            {/* Action Buttons Row */}
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={() => {
+                  setShowReqModal(false);
+                  router.push('/assets?action=deposit');
+                }}
+                className="flex-1 bg-white hover:bg-gray-100 text-black font-black text-xs sm:text-sm py-3.5 rounded-full transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>Deposit 10$</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+
+              <button
+                onClick={() => {
+                  setShowReqModal(false);
+                  router.push('/trade?symbol=BTCUSDT');
+                }}
+                className="flex-1 bg-[#85e640] hover:bg-[#76d335] text-[#0c2e02] font-black text-xs sm:text-sm py-3.5 rounded-full transition-all active:scale-[0.98] shadow-lg flex items-center justify-center gap-1 cursor-pointer"
+              >
+                <span>Trade BTC/USDT</span>
+                <ArrowRight className="w-4 h-4" />
+              </button>
+            </div>
 
           </div>
 

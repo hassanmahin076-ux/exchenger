@@ -104,7 +104,7 @@ function SupportHubContent() {
       </div>
 
       {/* Main Content Area */}
-      <main className="flex-1 px-4 py-3 flex flex-col gap-6 pb-24 overflow-y-auto no-scrollbar">
+      <main className="flex-1 px-4 py-3 flex flex-col gap-6 pb-36 overflow-y-auto no-scrollbar">
 
         {/* 3. FAQs Section matching Image 2 */}
         <section className="flex flex-col gap-3">
@@ -226,7 +226,7 @@ function SupportHubContent() {
       </main>
 
       {/* 5. Bottom Floating Action Button matching Image 2 */}
-      <div className="fixed bottom-4 left-0 right-0 max-w-[430px] mx-auto px-4 z-30 pointer-events-none">
+      <div className="fixed bottom-20 left-0 right-0 max-w-[430px] mx-auto px-4 z-30 pointer-events-none">
         <button
           onClick={() => setIsChatOpen(true)}
           className="w-full py-3.5 rounded-full bg-[#12141a]/95 hover:bg-[#1c202a] text-white border border-[#2f3544] font-extrabold text-sm flex items-center justify-center gap-2 transition-all active:scale-95 shadow-2xl backdrop-blur-md pointer-events-auto cursor-pointer"

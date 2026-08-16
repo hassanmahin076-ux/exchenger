@@ -70,6 +70,8 @@ export async function POST(request) {
       `SELECT u.id, u.uid, u.username, u.email, 
               COALESCE(b.total_usdt, 0.00) AS total_usdt, 
               COALESCE(b.available_usdt, 0.00) AS available_usdt,
+              COALESCE(b.spot_usdt, 0.00) AS spot_usdt,
+              COALESCE(b.futures_usdt, 0.00) AS futures_usdt,
               COALESCE(b.btc_balance, 0.00) AS btc_balance,
               COALESCE(b.bnb_balance, 0.00) AS bnb_balance,
               COALESCE(b.ton_balance, 0.00) AS ton_balance,
@@ -97,6 +99,8 @@ export async function POST(request) {
     const userId = userRow.id;
     const currentAvailableUsdt = parseFloat(userRow.available_usdt || 0);
     const currentTotalUsdt = parseFloat(userRow.total_usdt || 0);
+    const currentSpotUsdt = parseFloat(userRow.spot_usdt || 0);
+    const currentFuturesUsdt = parseFloat(userRow.futures_usdt || 0);
 
     // 2. Check source coin balance ONLY (No separate USDT requirement!)
     let currentFromBalance = 0;
@@ -146,42 +150,88 @@ export async function POST(request) {
       numToAmount = Math.max(0, grossToAmount - feeInToCoin);
     }
 
-    // 4. Update database balances
+    // 4. Update database balances cleanly with parameterized SQL
     let newAvailableUsdt = currentAvailableUsdt;
     let newTotalUsdt = currentTotalUsdt;
+    let newSpotUsdt = currentSpotUsdt > 0 ? currentSpotUsdt : Math.max(0, currentAvailableUsdt - currentFuturesUsdt);
 
-    const updates = [`updated_at = CURRENT_TIMESTAMP`];
+    let newBtc = parseFloat(userRow.btc_balance || 0);
+    let newBnb = parseFloat(userRow.bnb_balance || 0);
+    let newTon = parseFloat(userRow.ton_balance || 0);
+    let newTrx = parseFloat(userRow.trx_balance || 0);
+    let newEth = parseFloat(userRow.eth_balance || 0);
+    let newSol = parseFloat(userRow.sol_balance || 0);
+
+    const getCoinVal = (coin) => {
+      if (coin === 'BTC') return newBtc;
+      if (coin === 'BNB') return newBnb;
+      if (coin === 'TON') return newTon;
+      if (coin === 'TRX') return newTrx;
+      if (coin === 'ETH') return newEth;
+      if (coin === 'SOL') return newSol;
+      return 0;
+    };
+
+    const setCoinVal = (coin, val) => {
+      const v = Math.max(0, val);
+      if (coin === 'BTC') newBtc = v;
+      if (coin === 'BNB') newBnb = v;
+      if (coin === 'TON') newTon = v;
+      if (coin === 'TRX') newTrx = v;
+      if (coin === 'ETH') newEth = v;
+      if (coin === 'SOL') newSol = v;
+    };
 
     // Deduct fromCoin
     if (fromUpper === 'USDT') {
       newAvailableUsdt = Math.max(0, currentAvailableUsdt - numFromAmount);
       newTotalUsdt = Math.max(0, currentTotalUsdt - numFromAmount);
+      newSpotUsdt = Math.max(0, newSpotUsdt - numFromAmount);
     } else {
-      const fromCol = coinColMap[fromUpper];
-      const newFromVal = Math.max(0, currentFromBalance - numFromAmount);
-      updates.push(`${fromCol} = ${newFromVal}`);
+      const currentVal = getCoinVal(fromUpper);
+      setCoinVal(fromUpper, currentVal - numFromAmount);
     }
 
     // Add toCoin
     if (toUpper === 'USDT') {
       newAvailableUsdt += numToAmount;
       newTotalUsdt += numToAmount;
+      newSpotUsdt += numToAmount;
     } else {
-      const toCol = coinColMap[toUpper];
-      if (toCol) {
-        const currentToVal = parseFloat(userRow[toCol] || 0);
-        const newToVal = currentToVal + numToAmount;
-        updates.push(`${toCol} = ${newToVal}`);
-      }
+      const currentVal = getCoinVal(toUpper);
+      setCoinVal(toUpper, currentVal + numToAmount);
     }
 
-    updates.push(`total_usdt = ${newTotalUsdt}`);
-    updates.push(`available_usdt = ${newAvailableUsdt}`);
-
-    await client.query(
-      `UPDATE balances SET ${updates.join(', ')} WHERE user_id = $1;`,
+    // Check if balance record exists and update / insert with parameterized SQL
+    const balCheck = await client.query(
+      `SELECT id FROM balances WHERE user_id = $1;`,
       [userId]
     );
+
+    if (balCheck.rows.length === 0) {
+      await client.query(
+        `INSERT INTO balances 
+         (user_id, total_usdt, available_usdt, spot_usdt, futures_usdt, staked_usdt, btc_balance, bnb_balance, ton_balance, trx_balance, eth_balance, sol_balance, updated_at)
+         VALUES ($1, $2, $3, $4, $5, 0.00, $6, $7, $8, $9, $10, $11, CURRENT_TIMESTAMP);`,
+        [userId, newTotalUsdt, newAvailableUsdt, newSpotUsdt, currentFuturesUsdt, newBtc, newBnb, newTon, newTrx, newEth, newSol]
+      );
+    } else {
+      await client.query(
+        `UPDATE balances
+         SET total_usdt = $1,
+             available_usdt = $2,
+             spot_usdt = $3,
+             btc_balance = $4,
+             bnb_balance = $5,
+             ton_balance = $6,
+             trx_balance = $7,
+             eth_balance = $8,
+             sol_balance = $9,
+             updated_at = CURRENT_TIMESTAMP
+         WHERE user_id = $10;`,
+        [newTotalUsdt, newAvailableUsdt, newSpotUsdt, newBtc, newBnb, newTon, newTrx, newEth, newSol, userId]
+      );
+    }
 
     // 5. Log transaction
     await client.query(

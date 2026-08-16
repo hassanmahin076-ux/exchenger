@@ -19,6 +19,27 @@ export default function AppShell({ children }) {
   const [isTasksOpen, setIsTasksOpen] = useState(false);
   const [user, setUser] = useState(INITIAL_USER);
 
+  // Ping visitor analytics on app mount
+  React.useEffect(() => {
+    try {
+      const hasVisitedSession = sessionStorage.getItem('pkmx_visited');
+      const isNewVisit = !hasVisitedSession;
+      if (isNewVisit) {
+        sessionStorage.setItem('pkmx_visited', 'true');
+      }
+
+      fetch('/api/analytics/visitor', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          isNewVisit,
+          userUid: user?.uid || null,
+          userEmail: user?.email || null
+        })
+      }).catch(() => {});
+    } catch (_) {}
+  }, []);
+
   // Render top Navbar exclusively on the home page /home
   const showNavbar = pathname === '/home';
 

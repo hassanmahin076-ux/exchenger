@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { X, ShieldCheck, Mail, Lock, Key, ArrowRight, Loader2 } from 'lucide-react';
 import { useGoogleOAuth } from './GoogleOAuthProvider';
 import TurnstileWidget from './TurnstileWidget';
@@ -17,12 +17,22 @@ export default function AuthPortalModal({ isOpen, onClose }) {
   const { triggerGoogleLogin } = useGoogleOAuth();
   const [isGoogleLoading, setIsGoogleLoading] = useState(false);
 
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isOpen) {
+      const pendingCode = localStorage.getItem('pendingInvCode');
+      if (pendingCode) {
+        setReferralCode(pendingCode);
+      }
+    }
+  }, [isOpen]);
+
   if (!isOpen) return null;
 
   const handleGoogleAuthClick = async () => {
     setIsGoogleLoading(true);
     setErrorMsg("");
     try {
+      const pendingCode = referralCode || (typeof window !== 'undefined' ? localStorage.getItem('pendingInvCode') : '');
       await triggerGoogleLogin(
         (data) => {
           setIsGoogleLoading(false);
@@ -45,7 +55,8 @@ export default function AuthPortalModal({ isOpen, onClose }) {
         (errorText) => {
           setIsGoogleLoading(false);
           setErrorMsg(errorText || "Google authentication failed.");
-        }
+        },
+        pendingCode
       );
     } catch (err) {
       setIsGoogleLoading(false);
@@ -60,10 +71,11 @@ export default function AuthPortalModal({ isOpen, onClose }) {
     setErrorMsg("");
 
     try {
+      const activeRefCode = referralCode.trim() || (typeof window !== 'undefined' ? (localStorage.getItem('pendingInvCode') || '') : '');
       const endpoint = authMode === "login" ? "/api/auth/login" : "/api/auth/register";
       const payload = authMode === "login"
         ? { emailOrMobile: email.trim(), password, turnstileToken }
-        : { emailOrMobile: email.trim(), password, invitationCode: referralCode.trim(), turnstileToken };
+        : { emailOrMobile: email.trim(), password, invitationCode: activeRefCode, turnstileToken };
 
       const res = await fetch(endpoint, {
         method: "POST",

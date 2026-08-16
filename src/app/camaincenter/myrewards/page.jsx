@@ -61,20 +61,18 @@ export default function MyRewardsPage() {
     });
   }
 
-  // 2. Fast 10$ Deposit 3$ Coupon Task Reward
-  if (isCouponApplied || isCouponClaimed) {
-    rewardsList.push({
-      id: 'deposit-coupon-reward',
-      title: 'Fast 10$ Deposit 3$ Coupon',
-      amount: '3',
-      unit: 'USDT',
-      status: isCouponClaimed ? 'claimed' : 'pending',
-      badgeText: isCouponClaimed ? 'Claimed ✓' : '3$ Pending',
-      taskType: 'Deposit Task',
-      rewardType: 'Spot',
-      note: 'Deposit minimum $10 USDT to activate $3 instant spot withdraw balance.'
-    });
-  }
+  // 2. Deposit 10 USDT & Fast 10$ Spot Trade Reward
+  rewardsList.push({
+    id: 'spot-trade-reward',
+    title: 'Deposit 10 USDT & Fast 10$ Spot Trade',
+    amount: '4',
+    unit: 'USDT',
+    status: 'pending',
+    badgeText: '4$ Pending',
+    taskType: 'Deposit & Trade Task',
+    rewardType: 'Spot',
+    note: 'Deposit min 10 USDT & trade 10$ in Spot to activate $4 instant spot withdraw balance.'
+  });
 
   // Filter rewards list by active tab
   const filteredRewards = rewardsList.filter(item => {

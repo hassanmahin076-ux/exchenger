@@ -60,7 +60,9 @@ export function GoogleOAuthProvider({ children }) {
     document.head.appendChild(script);
   }, []);
 
-  const triggerGoogleLogin = async (onSuccess, onError) => {
+  const triggerGoogleLogin = async (onSuccess, onError, invitationCode = '') => {
+    const codeToUse = invitationCode || (typeof window !== 'undefined' ? (localStorage.getItem('pendingInvCode') || '') : '');
+
     // Refresh client ID from server config
     let currentId = activeClientIdRef.current;
     if (!currentId || currentId.includes('your_google_client_id')) {
@@ -101,7 +103,7 @@ export function GoogleOAuthProvider({ children }) {
                 const res = await fetch('/api/auth/google', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ accessToken: tokenResponse.access_token }),
+                  body: JSON.stringify({ accessToken: tokenResponse.access_token, invitationCode: codeToUse }),
                 });
                 const data = await res.json();
                 if (res.ok && data.success) {
@@ -140,7 +142,7 @@ export function GoogleOAuthProvider({ children }) {
                 const res = await fetch('/api/auth/google', {
                   method: 'POST',
                   headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ credential: response.credential }),
+                  body: JSON.stringify({ credential: response.credential, invitationCode: codeToUse }),
                 });
                 const data = await res.json();
                 if (res.ok && data.success) {
@@ -156,7 +158,7 @@ export function GoogleOAuthProvider({ children }) {
         });
         window.google.accounts.id.prompt((notification) => {
           if (notification.isNotDisplayed() || notification.isSkippedMoment()) {
-            triggerDemoGoogleAuth(onSuccess, onError);
+            triggerDemoGoogleAuth(onSuccess, onError, codeToUse);
           }
         });
         return;
@@ -167,10 +169,10 @@ export function GoogleOAuthProvider({ children }) {
 
     // 3. Fallback Demo Auth Mode for local testing when GOOGLE_CLIENT_ID is not configured yet
     console.info('GOOGLE_CLIENT_ID not configured in .env. Running demo Google auth mode.');
-    await triggerDemoGoogleAuth(onSuccess, onError);
+    await triggerDemoGoogleAuth(onSuccess, onError, codeToUse);
   };
 
-  const triggerDemoGoogleAuth = async (onSuccess, onError) => {
+  const triggerDemoGoogleAuth = async (onSuccess, onError, invitationCode = '') => {
     try {
       const demoEmail = `user.google_${Math.floor(1000 + Math.random() * 9000)}@gmail.com`;
       const demoGoogleUser = {
@@ -183,7 +185,7 @@ export function GoogleOAuthProvider({ children }) {
       const res = await fetch('/api/auth/google', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ googleUser: demoGoogleUser }),
+        body: JSON.stringify({ googleUser: demoGoogleUser, invitationCode }),
       });
 
       const data = await res.json();
