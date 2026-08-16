@@ -4,16 +4,28 @@ let pgPoolInstance = null;
 
 function getPgPool() {
   if (!pgPoolInstance) {
-    const poolConfig = {
-      host: process.env.PGHOST || 'localhost',
-      port: parseInt(process.env.PGPORT || '5432', 10),
-      database: process.env.PGDATABASE || 'Exchenger',
-      user: process.env.PGUSER || 'postgres',
-      password: process.env.PGPASSWORD || '123456',
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    };
+    let poolConfig;
+    if (process.env.DATABASE_URL) {
+      poolConfig = {
+        connectionString: process.env.DATABASE_URL,
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+      };
+    } else {
+      let rawHost = process.env.PGHOST || '127.0.0.1';
+      if (rawHost === 'localhost') rawHost = '127.0.0.1';
+      poolConfig = {
+        host: rawHost,
+        port: parseInt(process.env.PGPORT || '5432', 10),
+        database: process.env.PGDATABASE || 'pokyvakh_exchenger',
+        user: process.env.PGUSER || 'pokyvakh_user',
+        password: process.env.PGPASSWORD || '4rT_%6GkXFw&,nt',
+        max: 10,
+        idleTimeoutMillis: 30000,
+        connectionTimeoutMillis: 5000,
+      };
+    }
     pgPoolInstance = new Pool(poolConfig);
   }
   return pgPoolInstance;
