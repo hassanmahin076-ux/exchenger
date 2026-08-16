@@ -8,7 +8,8 @@
     "build": "next build",
     "start": "next start",
     "lint": "next lint",
-    "migrate": "node migrate.js"
+    "migrate": "node migrate.js",
+    "migrate-google": "node migrate_google_oauth.js"
   },
   "dependencies": {
     "@electric-sql/pglite": "^0.5.5",
