@@ -1,0 +1,125 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  --bg-cyber: #000000;
+  --accent-lime: #aeff00;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #000000;
+  color: #eaecef;
+  font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", "Segoe UI", Roboto, sans-serif;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Smooth glassmorphism utility classes */
+.glass-panel {
+  background: rgba(18, 22, 34, 0.75);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(255, 255, 255, 0.08);
+}
+
+.glow-lime {
+  box-shadow: 0 0 20px rgba(174, 255, 0, 0.25);
+}
+
+.glow-blue {
+  box-shadow: 0 0 20px rgba(59, 130, 246, 0.25);
+}
+
+/* Custom scrollbars */
+::-webkit-scrollbar {
+  width: 5px;
+  height: 5px;
+}
+
+::-webkit-scrollbar-track {
+  background: #0b0e11;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #2b2f36;
+  border-radius: 4px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #aeff00;
+}
+
+/* Lime Green Text Shadow */
+.lime-text {
+  color: #aeff00;
+}
+
+.lime-btn {
+  background-color: #aeff00;
+  color: #000000;
+  transition: all 0.2s cubic-bezier(0.4, 0, 0.2, 1);
+}
+
+.lime-btn:hover {
+  background-color: #9ef000;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 15px rgba(174, 255, 0, 0.3);
+}
+
+.lime-btn:active {
+  transform: translateY(0);
+}
+
+/* Smooth Fade and Slide Animations */
+@keyframes fadeIn {
+  from { opacity: 0; transform: translateY(8px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes slideUp {
+  from { transform: translateY(100%); }
+  to { transform: translateY(0); }
+}
+
+@keyframes slideDown {
+  from { opacity: 0; transform: translateY(-100%) scale(0.95); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+.animate-fadeIn {
+  animation: fadeIn 0.25s ease-out forwards;
+}
+
+.animate-slideUp {
+  animation: slideUp 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+.animate-slideDown {
+  animation: slideDown 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* Flash Animations for Prices */
+@keyframes flashGreen {
+  0% { color: #0ecb81; }
+  50% { background-color: rgba(14, 203, 129, 0.2); }
+  100% { background-color: transparent; }
+}
+
+@keyframes flashRed {
+  0% { color: #f6465d; }
+  50% { background-color: rgba(246, 70, 93, 0.2); }
+  100% { background-color: transparent; }
+}
+
+.flash-up {
+  animation: flashGreen 0.6s ease-out;
+}
+
+.flash-down {
+  animation: flashRed 0.6s ease-out;
+}
